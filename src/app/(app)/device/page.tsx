@@ -1,0 +1,232 @@
+"use client";
+
+import { useMidiConnection } from "@/hooks/use-midi-connection";
+import { ALL_CHANNELS, SEQTRAK_TRACKS } from "@/lib/midi/constants";
+import type { SeqtrackChannel, ChannelTestResult } from "@/lib/midi/types";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+
+const TRACK_COLORS: Record<string, string> = {
+  red: "bg-red-500",
+  yellow: "bg-yellow-500",
+  fuchsia: "bg-fuchsia-500",
+  cyan: "bg-cyan-500",
+  blue: "bg-blue-500",
+  green: "bg-green-500",
+  slate: "bg-slate-400",
+  purple: "bg-purple-500",
+  teal: "bg-teal-500",
+  amber: "bg-amber-500",
+  emerald: "bg-emerald-500",
+};
+
+function StatusDot({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    connected: "bg-green-500",
+    disconnected: "bg-red-500",
+    connecting: "bg-yellow-500",
+    error: "bg-red-500",
+    unsupported: "bg-gray-500",
+  };
+  return (
+    <span className={`inline-block h-3 w-3 rounded-full ${colors[status] ?? "bg-gray-500"}`} />
+  );
+}
+
+function ChannelTestRow({
+  channel,
+  result,
+  onTest,
+}: {
+  channel: SeqtrackChannel;
+  result?: ChannelTestResult;
+  onTest: () => void;
+}) {
+  const track = SEQTRAK_TRACKS[channel];
+  const colorClass = TRACK_COLORS[track.color] ?? "bg-gray-500";
+
+  return (
+    <div className="flex items-center gap-3 py-2 px-3 rounded-md hover:bg-accent/50 transition-colors">
+      <span className={`h-3 w-3 rounded-full shrink-0 ${colorClass}`} />
+      <span className="font-medium w-20 font-mono text-sm">{track.name}</span>
+      <span className="text-muted-foreground text-xs w-12">Ch {channel}</span>
+      <span className="text-xs w-16">
+        {track.type === "drum" ? (
+          <Badge variant="outline" className="text-[10px] px-1.5 py-0">drum</Badge>
+        ) : (
+          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{track.type}</Badge>
+        )}
+      </span>
+      <div className="flex-1" />
+      <span className="w-20 text-center">
+        {result?.status === "sent" && (
+          <span className="text-green-400 text-sm font-mono">sent</span>
+        )}
+        {result?.status === "testing" && (
+          <span className="text-yellow-400 text-sm font-mono animate-pulse">testing...</span>
+        )}
+        {result?.status === "error" && (
+          <span className="text-red-400 text-sm font-mono">error</span>
+        )}
+        {(!result || result.status === "idle") && (
+          <span className="text-muted-foreground text-sm font-mono">--</span>
+        )}
+      </span>
+      <Button variant="outline" size="sm" onClick={onTest} className="h-7 text-xs">
+        Test
+      </Button>
+    </div>
+  );
+}
+
+export default function DevicePage() {
+  const {
+    status,
+    device,
+    outputs,
+    error,
+    testResults,
+    isTesting,
+    selectDevice,
+    runTest,
+    testChannel,
+  } = useMidiConnection();
+
+  const getResult = (ch: SeqtrackChannel) =>
+    testResults.find((r) => r.channel === ch);
+
+  const sentCount = testResults.filter((r) => r.status === "sent").length;
+
+  return (
+    <main className="min-h-screen p-6 max-w-3xl mx-auto space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">MIDI Device</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Connect and test your Yamaha SEQTRAK
+          </p>
+        </div>
+      </div>
+
+      <Separator />
+
+      {/* Connection Status */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-3">
+            <StatusDot status={status} />
+            <div>
+              <CardTitle className="text-base">
+                {status === "connected" && device
+                  ? `${device.name} Connected`
+                  : status === "unsupported"
+                    ? "Browser Not Supported"
+                    : status === "error"
+                      ? "Connection Error"
+                      : "No Device Connected"}
+              </CardTitle>
+              <CardDescription className="text-xs mt-0.5">
+                {status === "connected" && device
+                  ? `Manufacturer: ${device.manufacturer} | ID: ${device.id.slice(0, 16)}...`
+                  : status === "unsupported"
+                    ? "Web MIDI API is not available. Use Chrome, Edge, or Firefox."
+                    : error ?? "Connect your SEQTRAK via USB-C"}
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+
+        {status !== "unsupported" && (
+          <CardContent className="pt-0">
+            <div className="flex items-center gap-3">
+              <Select
+                value={device?.id ?? ""}
+                onValueChange={(id) => {
+                  const d = outputs.find((o) => o.id === id);
+                  if (d) selectDevice(d);
+                }}
+              >
+                <SelectTrigger className="flex-1">
+                  <SelectValue placeholder="Select MIDI output..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {outputs.length === 0 ? (
+                    <SelectItem value="none" disabled>
+                      No MIDI devices found
+                    </SelectItem>
+                  ) : (
+                    outputs.map((o) => (
+                      <SelectItem key={o.id} value={o.id}>
+                        {o.name}
+                        {o.isSeqtrack && " (SEQTRAK)"}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+          </CardContent>
+        )}
+      </Card>
+
+      {/* Channel Test */}
+      {status !== "unsupported" && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-base">Channel Test</CardTitle>
+                <CardDescription className="text-xs mt-0.5">
+                  Send a test note (C3) on each of the 11 SEQTRAK channels
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                {sentCount > 0 && (
+                  <Badge variant="secondary" className="font-mono">
+                    {sentCount}/11
+                  </Badge>
+                )}
+                <Button
+                  onClick={runTest}
+                  disabled={!device || isTesting}
+                  size="sm"
+                >
+                  {isTesting ? "Testing..." : "Test All Channels"}
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="space-y-0.5">
+              {ALL_CHANNELS.map((ch) => (
+                <ChannelTestRow
+                  key={ch}
+                  channel={ch}
+                  result={getResult(ch)}
+                  onTest={() => testChannel(ch)}
+                />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Help */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Troubleshooting</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 text-sm text-muted-foreground space-y-2">
+          <p>1. Connect SEQTRAK to your Mac via USB-C cable</p>
+          <p>2. Make sure SEQTRAK is powered on</p>
+          <p>3. Use Chrome, Edge, or Firefox (Safari does not support Web MIDI)</p>
+          <p>4. If no device appears, try unplugging and reconnecting the USB cable</p>
+          <p>5. Click &quot;Test All Channels&quot; to verify each track receives MIDI</p>
+        </CardContent>
+      </Card>
+    </main>
+  );
+}

@@ -1,0 +1,10 @@
+demucs>=4.0.0
+basic-pitch>=0.3.0
+librosa>=0.10.0
+fastapi>=0.110.0
+uvicorn>=0.29.0
+yt-dlp>=2024.0.0
+numpy
+soundfile
+python-multipart
+requests
