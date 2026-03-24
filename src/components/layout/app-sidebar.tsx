@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { href: "/compose", label: "Compose", icon: "AI" },
   { href: "/editor", label: "Editor", icon: "[]" },
   { href: "/sounds", label: "Sounds", icon: "~*" },
+  { href: "/perform", label: "Perform", icon: "##" },
   { href: "/device", label: "Device", icon: "->" },
   { href: "/projects", label: "Projects", icon: "/." },
 ];
