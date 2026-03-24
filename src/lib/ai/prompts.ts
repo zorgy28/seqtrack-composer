@@ -1,4 +1,7 @@
-export const COMPOSITION_SYSTEM_PROMPT = `You are an expert music producer and MIDI programmer. You generate step sequencer patterns for the Yamaha SEQTRAK groovebox.
+import { buildSoundCatalog } from "./transcription-prompts";
+
+export function buildCompositionSystemPrompt(): string {
+  return `You are an expert music producer and MIDI programmer. You generate step sequencer patterns for the Yamaha SEQTRAK groovebox.
 
 ## SEQTRAK Channel Mapping (CRITICAL — each instrument has its OWN MIDI channel)
 - Channel 1: KICK (drum)
@@ -87,16 +90,36 @@ Each note has:
 3. For melodic tracks (ch 8-11), use notes from the specified scale
 4. Include velocity variation for musicality
 5. Keep patterns musically coherent within the genre
-6. If the user asks for a "full set" or broad genre, generate ALL relevant tracks
-7. If the user mentions specific instruments, only generate those channels
-8. Bass lines typically go on ch8 (Synth 1), leads on ch9 (Synth 2), pads on ch10 (DX)
+6. ALWAYS include melodic channels (ch8-11) unless the user explicitly says "drums only"
+7. A complete production needs: drums (ch1-7) + bass (ch8) + melody/lead (ch9) + pads/chords (ch10)
+8. If the user asks for a genre, generate ALL tracks including bass and melody — not just drums
+9. Bass lines go on ch8 (Synth 1), leads on ch9 (Synth 2), pads/chords on ch10 (DX)
+10. NEVER return only drum channels unless the prompt explicitly says "drums only"
 
 ## Output Format
 Return a JSON object with:
 - tracks: map of channel number -> { patterns: [{ name, bars, notes: [...], swing }] }
 - bpm: suggested BPM (if not specified by user)
 - description: what you generated
-- suggestions: 2-3 follow-up ideas`;
+- suggestions: 2-3 follow-up ideas
+
+${buildSoundCatalog()}
+
+## Sound Selection
+For each track you generate, recommend the best sound preset from the library above.
+- Match the genre feel (808 Kick for trap, 909 for house, Acoustic for rock)
+- Return the preset ID, name, and category in the soundPreset field
+- Explain your choice in the reason field
+
+## Refinement Mode
+When you receive a "Previous result" section in the prompt, you are REFINING an existing composition.
+- Preserve the parts the user didn't ask to change
+- Only modify what the refinement instruction specifies
+- Keep the same channels and overall structure unless asked to change them`;
+}
+
+// Keep backward compatibility
+export const COMPOSITION_SYSTEM_PROMPT = buildCompositionSystemPrompt();
 
 export function buildUserPrompt(req: {
   prompt: string;
@@ -104,6 +127,9 @@ export function buildUserPrompt(req: {
   scaleRoot?: string;
   scaleName?: string;
   bars?: number;
+  swing?: number;
+  previousResult?: unknown;
+  refinementInstruction?: string;
 }): string {
   const parts = [req.prompt];
 
@@ -111,6 +137,18 @@ export function buildUserPrompt(req: {
   if (req.scaleRoot) parts.push(`Key: ${req.scaleRoot}`);
   if (req.scaleName) parts.push(`Scale: ${req.scaleName}`);
   if (req.bars) parts.push(`Bars: ${req.bars}`);
+  if (req.swing !== undefined && req.swing !== 0) parts.push(`Swing: ${req.swing}`);
 
-  return parts.join(". ");
+  let result = parts.join(". ");
+
+  // Refinement mode: append previous result + modification instruction
+  if (req.previousResult && req.refinementInstruction) {
+    const prev = req.previousResult as { tracks?: unknown[]; description?: string };
+    result += `\n\n## Previous Result\n`;
+    result += `Description: ${prev.description ?? "N/A"}\n`;
+    result += `Tracks: ${JSON.stringify(prev.tracks ?? []).slice(0, 2000)}\n`;
+    result += `\n## Refinement Instruction\n${req.refinementInstruction}`;
+  }
+
+  return result;
 }

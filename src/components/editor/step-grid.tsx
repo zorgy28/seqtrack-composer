@@ -1,13 +1,16 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useRef, useMemo } from "react";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import { useProject } from "@/providers/project-provider";
+import { useSoundControl } from "@/hooks/use-sound-control";
 import { SEQTRAK_TRACKS, STEPS_PER_BAR, DRUM_CHANNELS, SYNTH_CHANNELS } from "@/lib/midi/constants";
 import { toggleNoteInPattern } from "@/lib/midi/pattern-generators";
 import { getScaleNotes, midiToNoteName } from "@/lib/midi/note-utils";
 import type { SeqtrackChannel, Note, Pattern } from "@/lib/midi/types";
 import { cn } from "@/lib/utils";
+import { SoundPicker } from "./sound-picker";
+import { recommendSounds, detectGenreFromPattern } from "@/lib/transcription/sound-matcher";
 
 // ─── Color Maps ────────────────────────────────────────────────
 
@@ -76,10 +79,22 @@ function TrackHeader({
   currentStep?: number | null;
 }) {
   const { project, setProject, selectedChannel, setSelectedChannel } = useProject();
+  const { getTrackSound } = useSoundControl();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const nameRef = useRef<HTMLButtonElement>(null);
+
   const track = project.tracks[channel];
   const info = SEQTRAK_TRACKS[channel];
   const dotColor = TRACK_BG[info.color] ?? "bg-gray-500";
   const trackColor = TRACK_BG_ACTIVE[info.color] ?? "bg-gray-500/80";
+  const currentPreset = getTrackSound(channel).preset;
+  const soundDisplayName = useMemo(() => {
+    if (currentPreset) return currentPreset.name;
+    // Show suggested sound name when none explicitly selected
+    const genre = detectGenreFromPattern(project);
+    const { primary } = recommendSounds(channel, genre);
+    return primary.name;
+  }, [currentPreset, project, channel]);
 
   const toggleMute = () => {
     const updatedTrack = { ...track, muted: !track.muted };
@@ -93,17 +108,34 @@ function TrackHeader({
     setProject({ ...project, tracks: updatedTracks });
   };
 
+  const handleNameClick = () => {
+    if (selectedChannel === channel) {
+      setPickerOpen(!pickerOpen);
+    } else {
+      setSelectedChannel(channel);
+    }
+  };
+
   return (
-    <>
+    <div className="flex items-center gap-0 relative">
       <button
-        onClick={() => setSelectedChannel(channel)}
+        ref={nameRef}
+        onClick={handleNameClick}
         className={cn(
-          "flex items-center gap-2 w-24 shrink-0 px-2 py-1 hover:bg-accent/30 rounded-l transition-colors",
+          "flex items-center gap-2 w-28 shrink-0 px-2 py-0.5 hover:bg-accent/30 rounded-l transition-colors",
           selectedChannel === channel && "bg-accent/30",
         )}
       >
         <span className={cn("h-2.5 w-2.5 rounded-full shrink-0", dotColor)} />
-        <span className="text-xs font-mono truncate">{info.name}</span>
+        <div className="flex flex-col items-start min-w-0">
+          <span className="text-xs font-mono truncate leading-tight">{info.name}</span>
+          <span className={cn(
+            "text-[9px] truncate leading-tight max-w-[70px]",
+            currentPreset ? "text-muted-foreground" : "text-muted-foreground/50 italic",
+          )}>
+            {soundDisplayName}
+          </span>
+        </div>
       </button>
 
       <button
@@ -144,7 +176,14 @@ function TrackHeader({
           />
         </div>
       </div>
-    </>
+
+      {/* Sound picker popover */}
+      {pickerOpen && (
+        <div className="absolute left-0 top-full mt-1 z-50">
+          <SoundPicker channel={channel} onClose={() => setPickerOpen(false)} />
+        </div>
+      )}
+    </div>
   );
 }
 

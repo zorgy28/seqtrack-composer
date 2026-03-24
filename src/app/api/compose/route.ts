@@ -1,23 +1,28 @@
-import { getModel, supportsStructuredOutput } from "@/lib/ai/model-provider";
+import { getModelWithOverride, supportsStructuredOutput } from "@/lib/ai/model-provider";
 import { generateWithFallback } from "@/lib/ai/json-fallback";
 import { compositionResultSchema } from "@/lib/ai/schema";
-import { COMPOSITION_SYSTEM_PROMPT, buildUserPrompt } from "@/lib/ai/prompts";
+import { buildCompositionSystemPrompt, buildUserPrompt } from "@/lib/ai/prompts";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { prompt, bpm, scaleRoot, scaleName, bars } = body;
+    const { prompt, bpm, scaleRoot, scaleName, bars, swing,
+            modelProvider, modelId,
+            previousResult, refinementInstruction } = body;
 
     if (!prompt || typeof prompt !== "string") {
       return Response.json({ error: "prompt is required" }, { status: 400 });
     }
 
+    console.log(`[compose] provider=${modelProvider ?? "claude"} bars=${bars ?? 1} refine=${!!previousResult}`);
+
     const output = await generateWithFallback({
-      model: getModel(),
+      model: getModelWithOverride(modelProvider, modelId),
       schema: compositionResultSchema,
-      system: COMPOSITION_SYSTEM_PROMPT,
-      prompt: buildUserPrompt({ prompt, bpm, scaleRoot, scaleName, bars }),
-      supportsStructuredOutput: supportsStructuredOutput(),
+      system: buildCompositionSystemPrompt(),
+      prompt: buildUserPrompt({ prompt, bpm, scaleRoot, scaleName, bars, swing,
+                                previousResult, refinementInstruction }),
+      supportsStructuredOutput: supportsStructuredOutput(modelProvider),
     });
 
     return Response.json(output);

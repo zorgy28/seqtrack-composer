@@ -1,5 +1,5 @@
 import type { SoundPreset, SoundCategory, SoundEngine, SeqtrackChannel } from "./types";
-import { loadScannedPresets } from "./sound-scanner";
+import { loadScannedPresets, saveScannedPresets, generateAllPresets } from "./sound-scanner";
 
 /**
  * SEQTRAK Sound Library — representative presets from each category.
@@ -220,6 +220,17 @@ export function isCompleteLibrary(): boolean {
 /** Invalidate the cached scanned presets (call after a new scan) */
 export function invalidatePresetCache(): void {
   _cachedComplete = null;
+}
+
+/**
+ * Get the full library. Prefers scanned data (real names from device).
+ * Falls back to built-in 99 presets — does NOT generate bloated placeholder entries.
+ * Use "Scan Device" on the Sounds page to get all 2032+ real preset names.
+ */
+export function getFullLibrary(): SoundPreset[] {
+  const scanned = loadScannedPresets();
+  if (scanned && scanned.length > 100) return scanned;
+  return ALL_PRESETS;
 }
 
 // ─── Query Functions ────────────────────────────────────────────

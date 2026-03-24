@@ -1,4 +1,4 @@
-import type { SeqtrackChannel, SoundPreset } from "@/lib/midi/types";
+import type { SeqtrackChannel, SoundPreset, Project } from "@/lib/midi/types";
 import { getPresetsForChannel } from "@/lib/midi/sound-library";
 import type { SoundRecommendation } from "./types";
 
@@ -290,4 +290,35 @@ export function recommendSounds(
   }
 
   return { primary, alternatives };
+}
+
+// ---- Genre Detection from Pattern ------------------------------------
+
+/**
+ * Detect probable genre from current project patterns.
+ * Analyzes kick pattern, BPM, and hat density.
+ */
+export function detectGenreFromPattern(project: Project): string {
+  const kick = project.tracks[1 as SeqtrackChannel];
+  const hat = project.tracks[4 as SeqtrackChannel];
+  const bpm = project.bpm;
+
+  const kickPattern = kick.patterns[kick.activePattern];
+  const hatPattern = hat.patterns[hat.activePattern];
+
+  const kickSteps = new Set(kickPattern.notes.map((n) => n.step % 16));
+  const hatNoteCount = hatPattern.notes.length;
+
+  // Four-on-the-floor detection (kicks on 0,4,8,12)
+  const isFourOnFloor =
+    kickSteps.has(0) && kickSteps.has(4) && kickSteps.has(8) && kickSteps.has(12);
+
+  if (bpm >= 118 && bpm <= 135 && isFourOnFloor) return "house";
+  if (bpm >= 120 && bpm <= 145 && isFourOnFloor) return "techno";
+  if (bpm >= 130 && bpm <= 170 && hatNoteCount >= 12) return "trap";
+  if (bpm >= 160 && bpm <= 180) return "dnb";
+  if (bpm >= 70 && bpm <= 95) return "hiphop";
+  if (bpm >= 60 && bpm <= 90 && hatNoteCount < 6) return "lofi";
+
+  return "default";
 }

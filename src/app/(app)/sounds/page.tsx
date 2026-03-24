@@ -3,14 +3,17 @@
 import { useState, useMemo, useCallback } from "react";
 import { useProject } from "@/providers/project-provider";
 import { useSoundControl } from "@/hooks/use-sound-control";
+import { useMidiConnection } from "@/hooks/use-midi-connection";
 import {
   getAllPresets,
+  getFullLibrary,
   getCategoriesForEngine,
   invalidatePresetCache,
 } from "@/lib/midi/sound-library";
 import {
   scanAllPresets,
   saveScannedPresets,
+  clearScannedPresets,
   downloadPresetsAsJSON,
   loadScannedPresets,
 } from "@/lib/midi/sound-scanner";
@@ -30,19 +33,36 @@ const ENGINE_TABS: Array<{ value: SoundEngine; label: string }> = [
   { value: "sampler", label: "Sampler" },
 ];
 
+const VISIBLE_LIMIT = 100;
+
 export default function SoundsPage() {
   const { selectedChannel, setSelectedChannel } = useProject();
   const { selectPreset, setCC, getTrackSound, isConnected } = useSoundControl();
+  const { sendNoteToDevice, device } = useMidiConnection();
   const [engine, setEngine] = useState<SoundEngine>("awm2");
   const [selectedCategory, setSelectedCategory] = useState<SoundCategory | "all">("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [lastPlayedId, setLastPlayedId] = useState<number | null>(null);
+  const [visibleCount, setVisibleCount] = useState(VISIBLE_LIMIT);
 
   // Scanning state
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState({ current: 0, total: 0, currentName: "" });
-  const [scannedPresets, setScannedPresets] = useState<SoundPreset[] | null>(() =>
-    typeof window !== "undefined" ? loadScannedPresets() : null,
-  );
+  const [scannedPresets, setScannedPresets] = useState<SoundPreset[] | null>(() => {
+    if (typeof window === "undefined") return null;
+    const data = loadScannedPresets();
+    // Auto-clear bloated generated libraries (generic "Drum XX-YYY" names)
+    if (data && data.length > 500) {
+      const genericCount = data.filter((p) => /^(Drum|Synth|DX) \d/.test(p.name)).length;
+      if (genericCount > data.length * 0.5) {
+        // More than half are generic — this is generated, not scanned. Clear it.
+        clearScannedPresets();
+        invalidatePresetCache();
+        return null;
+      }
+    }
+    return data;
+  });
 
   const trackInfo = SEQTRAK_TRACKS[selectedChannel];
   const trackSound = getTrackSound(selectedChannel);
@@ -67,9 +87,30 @@ export default function SoundsPage() {
     return presets;
   }, [engine, selectedCategory, searchQuery, activePresets]);
 
-  const handleSelectPreset = (preset: SoundPreset) => {
-    selectPreset(selectedChannel, preset);
-  };
+  // Reset visible count when filters change
+  const visiblePresets = useMemo(() => {
+    return filteredPresets.slice(0, visibleCount);
+  }, [filteredPresets, visibleCount]);
+
+  const hasMore = filteredPresets.length > visibleCount;
+
+  // Preview sound on click: select preset then send a note
+  const handlePreviewSound = useCallback(async (preset: SoundPreset) => {
+    if (!device) return;
+    await selectPreset(selectedChannel, preset);
+    setLastPlayedId(preset.id);
+    setTimeout(() => {
+      sendNoteToDevice(selectedChannel, 60, 100, 300);
+    }, 50);
+  }, [device, selectPreset, selectedChannel, sendNoteToDevice]);
+
+  // Load full library (generated, no device needed)
+  const handleLoadFullLibrary = useCallback(() => {
+    const full = getFullLibrary();
+    invalidatePresetCache();
+    setScannedPresets(full);
+    setVisibleCount(VISIBLE_LIMIT);
+  }, []);
 
   // Scan handler
   const handleScan = useCallback(async () => {
@@ -84,16 +125,18 @@ export default function SoundsPage() {
       const seqtrack = outputs.find((o) => o.isSeqtrack);
       if (!seqtrack) return;
 
-      const presets = await scanAllPresets(seqtrack.id, (progress) => {
+      const scannedFromDevice = await scanAllPresets(seqtrack.id, (progress) => {
         setScanProgress({
           current: progress.current,
           total: progress.total,
           currentName: progress.currentName,
         });
       });
-      saveScannedPresets(presets);
+
+      // Save scanned presets directly — these have real names from the device
+      saveScannedPresets(scannedFromDevice);
       invalidatePresetCache();
-      setScannedPresets(presets);
+      setScannedPresets(scannedFromDevice);
     } finally {
       setIsScanning(false);
     }
@@ -126,6 +169,12 @@ export default function SoundsPage() {
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">Sound Browser</CardTitle>
               <div className="flex items-center gap-2">
+                {/* Hint to scan if no scanned data */}
+                {!hasScannedData && isConnected && (
+                  <span className="text-[10px] text-muted-foreground">
+                    Scan device to get all sounds
+                  </span>
+                )}
                 {/* Scan & Export Buttons */}
                 {isConnected && (
                   <Button
@@ -172,11 +221,13 @@ export default function SoundsPage() {
               <div className="flex items-center gap-2 mt-1">
                 <span className="text-[10px] text-muted-foreground">
                   {hasScannedData
-                    ? `${scannedPresets!.length} scanned presets`
+                    ? `${scannedPresets!.length} presets loaded`
                     : `${getAllPresets().length} built-in presets`}
                 </span>
                 {hasScannedData && (
-                  <Badge variant="secondary" className="text-[9px] h-4">Scanned</Badge>
+                  <Badge variant="secondary" className="text-[9px] h-4">
+                    {scannedPresets!.length > 2000 ? "Full" : "Scanned"}
+                  </Badge>
                 )}
               </div>
             )}
@@ -188,6 +239,7 @@ export default function SoundsPage() {
               onValueChange={(v) => {
                 setEngine(v as SoundEngine);
                 setSelectedCategory("all");
+                setVisibleCount(VISIBLE_LIMIT);
               }}
             >
               <TabsList>
@@ -225,7 +277,10 @@ export default function SoundsPage() {
               type="text"
               placeholder="Search sounds..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setVisibleCount(VISIBLE_LIMIT);
+              }}
               className="w-full bg-background border border-input rounded px-3 py-1.5 text-sm"
             />
 
@@ -236,7 +291,10 @@ export default function SoundsPage() {
                   variant={selectedCategory === "all" ? "default" : "ghost"}
                   size="sm"
                   className="h-6 text-[10px]"
-                  onClick={() => setSelectedCategory("all")}
+                  onClick={() => {
+                    setSelectedCategory("all");
+                    setVisibleCount(VISIBLE_LIMIT);
+                  }}
                 >
                   All
                 </Button>
@@ -246,7 +304,10 @@ export default function SoundsPage() {
                     variant={selectedCategory === cat ? "default" : "ghost"}
                     size="sm"
                     className="h-6 text-[10px]"
-                    onClick={() => setSelectedCategory(cat)}
+                    onClick={() => {
+                      setSelectedCategory(cat);
+                      setVisibleCount(VISIBLE_LIMIT);
+                    }}
                   >
                     {cat}
                   </Button>
@@ -283,6 +344,11 @@ export default function SoundsPage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm">
               {filteredPresets.length} presets
+              {filteredPresets.length > visibleCount && (
+                <span className="text-muted-foreground font-normal">
+                  {" "}(showing {visibleCount})
+                </span>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
@@ -293,25 +359,57 @@ export default function SoundsPage() {
                   : "No presets found."}
               </p>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 max-h-[400px] overflow-auto">
-                {filteredPresets.map((preset) => (
-                  <button
-                    key={preset.id}
-                    onClick={() => handleSelectPreset(preset)}
-                    disabled={!isConnected}
-                    className={cn(
-                      "text-left px-2 py-1.5 rounded text-xs transition-colors",
-                      trackSound.preset?.id === preset.id
-                        ? "bg-primary text-primary-foreground"
-                        : "hover:bg-accent/50",
-                      !isConnected && "opacity-50 cursor-not-allowed",
-                    )}
-                  >
-                    <span className="font-medium block truncate">{preset.name}</span>
-                    <span className="text-[10px] text-muted-foreground">{preset.category}</span>
-                  </button>
-                ))}
-              </div>
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 max-h-[400px] overflow-auto">
+                  {visiblePresets.map((preset) => (
+                    <button
+                      key={preset.id}
+                      onClick={() => handlePreviewSound(preset)}
+                      disabled={!isConnected}
+                      className={cn(
+                        "text-left px-2 py-1.5 rounded text-xs transition-colors relative",
+                        trackSound.preset?.id === preset.id
+                          ? "bg-primary text-primary-foreground ring-2 ring-primary/50"
+                          : "hover:bg-accent/50",
+                        !isConnected && "opacity-50 cursor-not-allowed",
+                      )}
+                    >
+                      <span className="font-medium block truncate pr-4">{preset.name}</span>
+                      <span className={cn(
+                        "text-[10px]",
+                        trackSound.preset?.id === preset.id
+                          ? "text-primary-foreground/70"
+                          : "text-muted-foreground",
+                      )}>
+                        {preset.category}
+                      </span>
+                      {/* Playing indicator */}
+                      {lastPlayedId === preset.id && (
+                        <span className="absolute top-1.5 right-1.5 text-[10px]" title="Last played">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                            <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                            <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                          </svg>
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+                {/* Show More button */}
+                {hasMore && (
+                  <div className="flex justify-center pt-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setVisibleCount((prev) => prev + VISIBLE_LIMIT)}
+                    >
+                      Show more ({filteredPresets.length - visibleCount} remaining)
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
           </CardContent>
         </Card>

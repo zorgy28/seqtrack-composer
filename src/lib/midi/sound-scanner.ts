@@ -273,6 +273,116 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// ─── Full Library Generator ─────────────────────────────────────
+
+/**
+ * Generate a complete preset library by enumerating all Bank/PC combinations.
+ * Overlays known preset names from the built-in library.
+ * No device connection needed — instant.
+ */
+export function generateAllPresets(knownPresets: SoundPreset[]): SoundPreset[] {
+  const presets: SoundPreset[] = [];
+  let id = 1;
+
+  // Build lookup for known presets
+  const knownMap = new Map<string, SoundPreset>();
+  for (const p of knownPresets) {
+    knownMap.set(`${p.bankMSB}-${p.bankLSB}-${p.programNumber}`, p);
+  }
+
+  // Drums: bankMSB=63, LSB 0-5, PC 0-127
+  for (let lsb = 0; lsb <= 5; lsb++) {
+    for (let pc = 0; pc < 128; pc++) {
+      const key = `63-${lsb}-${pc}`;
+      const known = knownMap.get(key);
+      if (known) {
+        presets.push({ ...known, id: id++ });
+      } else {
+        presets.push({
+          id: id++,
+          name: `Drum ${String(lsb).padStart(2, "0")}-${String(pc).padStart(3, "0")}`,
+          category: inferDrumCategory(lsb, pc),
+          engine: "drum",
+          bankMSB: 63, bankLSB: lsb, programNumber: pc,
+        });
+      }
+    }
+  }
+
+  // AWM2 Synth: LSB 6-14
+  for (let lsb = 6; lsb <= 14; lsb++) {
+    for (let pc = 0; pc < 128; pc++) {
+      const key = `63-${lsb}-${pc}`;
+      const known = knownMap.get(key);
+      if (known) {
+        presets.push({ ...known, id: id++ });
+      } else {
+        presets.push({
+          id: id++,
+          name: `Synth ${String(lsb).padStart(2, "0")}-${String(pc).padStart(3, "0")}`,
+          category: inferSynthCategory(lsb),
+          engine: "awm2",
+          bankMSB: 63, bankLSB: lsb, programNumber: pc,
+        });
+      }
+    }
+  }
+
+  // DX: LSB 15
+  for (let pc = 0; pc < 128; pc++) {
+    const key = `63-15-${pc}`;
+    const known = knownMap.get(key);
+    if (known) {
+      presets.push({ ...known, id: id++ });
+    } else {
+      presets.push({
+        id: id++,
+        name: `DX ${String(pc).padStart(3, "0")}`,
+        category: inferDXCategory(pc),
+        engine: "dx",
+        bankMSB: 63, bankLSB: 15, programNumber: pc,
+      });
+    }
+  }
+
+  return presets;
+}
+
+function inferDrumCategory(lsb: number, pc: number): SoundCategory {
+  // Based on existing preset positions in the built-in library:
+  if (lsb === 0 && pc < 120) return "Kick";
+  if ((lsb === 0 && pc >= 120) || (lsb === 1 && pc < 120)) return "Snare";
+  if ((lsb === 1 && pc >= 120) || (lsb === 2 && pc < 60)) return "Clap";
+  if (lsb === 2 && pc >= 60 && pc < 128) return "Closed HiHat";
+  if (lsb === 3 && pc < 80) return "Closed HiHat";
+  if (lsb === 3 && pc >= 80) return "Open HiHat";
+  if (lsb === 4) return "Shaker";  // Perc1 range
+  if (lsb === 5) return "Crash";   // Perc2 range
+  return "Tom";
+}
+
+function inferSynthCategory(lsb: number): SoundCategory {
+  if (lsb === 6 || lsb === 7) return "Bass";
+  if (lsb === 8) return "Piano";
+  if (lsb === 9) return "Keyboard";
+  if (lsb === 10) return "Pad";
+  if (lsb === 11) return "Strings";
+  if (lsb === 12) return "Guitar";
+  if (lsb === 13) return "Mallet";
+  if (lsb === 14) return "Bell";
+  return "SFX";
+}
+
+function inferDXCategory(pc: number): SoundCategory {
+  if (pc < 15) return "Bass";
+  if (pc < 30) return "Synth Lead";
+  if (pc < 50) return "Piano";
+  if (pc < 60) return "Pad";
+  if (pc < 95) return "Keyboard";
+  if (pc < 110) return "Bell";
+  return "SFX";
+}
+
 // ─── Storage Helpers ─────────────────────────────────────────────
 
 const STORAGE_KEY = "seqtrack-complete-presets";

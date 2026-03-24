@@ -1,242 +1,283 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { useProject } from "@/providers/project-provider";
-import type { SeqtrackChannel, Pattern, Note } from "@/lib/midi/types";
-import type { CompositionOutput } from "@/lib/ai/schema";
-import { SEQTRAK_TRACKS } from "@/lib/midi/constants";
+import { useMidiConnection } from "@/hooks/use-midi-connection";
+import { useSoundControl } from "@/hooks/use-sound-control";
+import { useCompose } from "@/hooks/use-compose";
+import { getAllPresets } from "@/lib/midi/sound-library";
+import type { SeqtrackChannel } from "@/lib/midi/types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-
-const STYLE_PRESETS = [
-  "Dark techno beat",
-  "Lo-fi hip hop groove",
-  "Deep house rhythm",
-  "Ambient pad texture",
-  "DnB breakbeat",
-  "Trap beat with hi-hat rolls",
-  "Funky disco groove",
-  "Minimal techno loop",
-];
+import { Loader2, Sparkles } from "lucide-react";
+import { ComposeParams as ComposeParamsPanel } from "@/components/compose/compose-params";
+import { ComposePresets } from "@/components/compose/compose-presets";
+import { ComposeResults } from "@/components/compose/compose-results";
+import { ComposeHistory } from "@/components/compose/compose-history";
 
 export default function ComposePage() {
-  const { project, setProject } = useProject();
+  const router = useRouter();
+  const { project, setProject, updateBpm } = useProject();
+  const { device } = useMidiConnection();
+  const { selectPreset } = useSoundControl();
+  const {
+    stage,
+    result,
+    error,
+    history,
+    generate,
+    refine,
+    reset,
+    restoreFromHistory,
+  } = useCompose();
+
   const [prompt, setPrompt] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<CompositionOutput | null>(null);
-  const [applied, setApplied] = useState(false);
+  const [bars, setBars] = useState(2);
+  const [swing, setSwing] = useState(0);
+  const [modelProvider, setModelProvider] = useState("claude");
+  const [modelId, setModelId] = useState("claude-sonnet-4");
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentStep, setCurrentStep] = useState<number | null>(null);
+  const cancelPreviewRef = useRef<(() => void) | null>(null);
 
-  const handleGenerate = async (text?: string) => {
-    const actualPrompt = text ?? prompt;
-    if (!actualPrompt.trim()) return;
+  // ── Stop Preview ────────────────────────────────────────────────
 
-    setLoading(true);
-    setError(null);
-    setResult(null);
-    setApplied(false);
-
-    try {
-      const res = await fetch("/api/compose", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: actualPrompt,
-          bpm: project.bpm,
-          scaleRoot: project.scaleRoot,
-          scaleName: project.scaleName,
-          bars: 1,
-        }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error ?? "Generation failed");
-      }
-
-      const data: CompositionOutput = await res.json();
-      setResult(data);
-
-      if (data.bpm && data.bpm !== project.bpm) {
-        setProject({ ...project, bpm: data.bpm });
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate");
-    } finally {
-      setLoading(false);
+  const stopPreview = useCallback(() => {
+    if (cancelPreviewRef.current) {
+      cancelPreviewRef.current();
+      cancelPreviewRef.current = null;
     }
-  };
+    setIsPlaying(false);
+    setCurrentStep(null);
+  }, []);
 
-  const handleApply = () => {
+  // ── Generate ────────────────────────────────────────────────────
+
+  const handleGenerate = useCallback(
+    (overridePrompt?: string) => {
+      const p = overridePrompt ?? prompt;
+      if (!p.trim()) return;
+
+      stopPreview();
+      generate({
+        prompt: p,
+        bpm: project.bpm,
+        scaleRoot: project.scaleRoot,
+        scaleName: project.scaleName,
+        bars,
+        swing,
+        modelProvider,
+        modelId,
+      });
+    },
+    [prompt, project.bpm, project.scaleRoot, project.scaleName, bars, swing, modelProvider, modelId, stopPreview, generate],
+  );
+
+  // ── Preview (toggle play/stop) ─────────────────────────────────
+
+  const handlePreview = useCallback(async () => {
+    if (isPlaying) {
+      stopPreview();
+      return;
+    }
+    if (!device || !result) return;
+
+    const { playPatternLoopedWithCursor } = await import(
+      "@/lib/webmidi/midi-sender"
+    );
+    const tracks = result.tracks
+      .filter((t) => t.patterns[0]?.notes.length > 0)
+      .map((t) => ({
+        pattern: t.patterns[0],
+        channel: t.channel as SeqtrackChannel,
+      }));
+
+    if (tracks.length === 0) return;
+
+    setIsPlaying(true);
+    const cancel = playPatternLoopedWithCursor(
+      device.id,
+      tracks,
+      result.bpm ?? project.bpm,
+      (step) => setCurrentStep(step),
+    );
+    cancelPreviewRef.current = cancel;
+  }, [isPlaying, device, result, project.bpm, stopPreview]);
+
+  // ── Apply ──────────────────────────────────────────────────────
+
+  const handleApply = useCallback(() => {
     if (!result) return;
+    stopPreview();
 
     const updatedTracks = { ...project.tracks };
 
-    for (const trackEntry of result.tracks) {
-      const ch = trackEntry.channel as SeqtrackChannel;
-      if (ch < 1 || ch > 11) continue;
+    for (const t of result.tracks) {
+      const ch = t.channel as SeqtrackChannel;
+      const existing = { ...updatedTracks[ch] };
 
-      const track = { ...updatedTracks[ch] };
-      const patterns = [...track.patterns];
-
-      if (trackEntry.patterns.length > 0) {
-        const genPattern = trackEntry.patterns[0];
-        const pattern: Pattern = {
-          name: genPattern.name,
-          bars: genPattern.bars,
-          swing: genPattern.swing,
-          notes: genPattern.notes.map((n): Note => ({
-            pitch: n.pitch,
-            velocity: n.velocity,
-            step: n.step,
-            duration: n.duration,
-            probability: n.probability,
-          })),
+      if (t.patterns[0]) {
+        existing.patterns = [...existing.patterns];
+        existing.patterns[existing.activePattern] = {
+          ...t.patterns[0],
+          swing: t.patterns[0].swing ?? swing,
         };
-        patterns[track.activePattern] = pattern;
       }
 
-      track.patterns = patterns;
-      updatedTracks[ch] = track;
+      updatedTracks[ch] = existing;
+
+      // Apply sound preset to the device if connected
+      if (t.soundPreset) {
+        const full = getAllPresets().find((p) => p.id === t.soundPreset!.id);
+        if (full) void selectPreset(ch, full);
+      }
     }
 
-    setProject({
+    const updated = {
       ...project,
       tracks: updatedTracks,
       bpm: result.bpm ?? project.bpm,
       updatedAt: new Date().toISOString(),
-    });
-    setApplied(true);
-  };
+    };
+    setProject(updated);
+  }, [result, project, swing, stopPreview, setProject, selectPreset]);
+
+  // ── Apply & Edit ──────────────────────────────────────────────
+
+  const handleApplyAndEdit = useCallback(() => {
+    handleApply();
+    router.push("/editor");
+  }, [handleApply, router]);
+
+  // ── Scale changes ─────────────────────────────────────────────
+
+  const handleScaleRootChange = useCallback(
+    (root: string) => {
+      setProject({ ...project, scaleRoot: root });
+    },
+    [project, setProject],
+  );
+
+  const handleScaleNameChange = useCallback(
+    (name: string) => {
+      setProject({ ...project, scaleName: name });
+    },
+    [project, setProject],
+  );
+
+  // ── Render ────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col h-full overflow-auto">
-      <div className="max-w-2xl mx-auto w-full p-6 space-y-6">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">AI Compose</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <Textarea
-              placeholder="Describe the music you want... e.g., 'dark techno beat at 130 BPM with driving bassline'"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              className="min-h-[80px] font-mono text-sm"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                  handleGenerate();
-                }
-              }}
-            />
-            <div className="flex items-center gap-2">
-              <Button
-                onClick={() => handleGenerate()}
-                disabled={loading || !prompt.trim()}
-                className="font-mono"
-              >
-                {loading ? "Generating..." : "Generate"}
-              </Button>
-              <span className="text-xs text-muted-foreground">Cmd+Enter</span>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="flex flex-col gap-4 max-w-3xl mx-auto w-full p-4">
+        {/* Parameters */}
+        <ComposeParamsPanel
+          bars={bars}
+          onBarsChange={setBars}
+          bpm={project.bpm}
+          onBpmChange={updateBpm}
+          scaleRoot={project.scaleRoot}
+          onScaleRootChange={handleScaleRootChange}
+          scaleName={project.scaleName}
+          onScaleNameChange={handleScaleNameChange}
+          swing={swing}
+          onSwingChange={setSwing}
+          modelProvider={modelProvider}
+          modelId={modelId}
+          onModelChange={(p, m) => {
+            setModelProvider(p);
+            setModelId(m);
+          }}
+          disabled={stage === "loading"}
+        />
 
-        <div className="space-y-2">
-          <span className="text-xs text-muted-foreground font-mono uppercase tracking-wider">
-            Quick Presets
-          </span>
-          <div className="flex gap-2 flex-wrap">
-            {STYLE_PRESETS.map((preset) => (
-              <Button
-                key={preset}
-                variant="outline"
-                size="sm"
-                className="text-xs"
-                disabled={loading}
-                onClick={() => {
-                  setPrompt(preset);
-                  handleGenerate(preset);
-                }}
-              >
-                {preset}
-              </Button>
-            ))}
+        {/* Presets */}
+        <ComposePresets
+          onSelect={(p) => {
+            setPrompt(p);
+          }}
+          disabled={stage === "loading"}
+        />
+
+        {/* Prompt input */}
+        <div className="flex flex-col gap-2">
+          <Textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="Describe your music... (e.g., 'dark techno with driving bass and industrial hats')"
+            className="min-h-[80px] font-mono text-sm"
+            onKeyDown={(e) => {
+              if (e.metaKey && e.key === "Enter") handleGenerate();
+            }}
+            disabled={stage === "loading"}
+          />
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={() => handleGenerate()}
+              disabled={stage === "loading" || !prompt.trim()}
+            >
+              {stage === "loading" ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Generate
+                </>
+              )}
+            </Button>
+            <span className="text-xs text-muted-foreground">Cmd+Enter</span>
           </div>
         </div>
 
-        {error && (
-          <Card className="border-destructive">
-            <CardContent className="pt-4">
-              <p className="text-sm text-destructive">{error}</p>
-            </CardContent>
-          </Card>
+        {/* Error */}
+        {stage === "error" && error && (
+          <div className="rounded-lg bg-destructive/10 p-3">
+            <p className="text-sm text-destructive">{error}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={reset}
+              className="mt-2"
+            >
+              Try Again
+            </Button>
+          </div>
         )}
 
-        {result && (
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Generated Pattern</CardTitle>
-                <Button onClick={handleApply} disabled={applied} size="sm">
-                  {applied ? "Applied" : "Apply to Project"}
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-sm text-muted-foreground">{result.description}</p>
+        {/* Results */}
+        {stage === "preview" && result && (
+          <ComposeResults
+            result={result}
+            projectBpm={project.bpm}
+            isPlaying={isPlaying}
+            currentStep={currentStep}
+            onPreview={handlePreview}
+            onApply={handleApply}
+            onApplyAndEdit={handleApplyAndEdit}
+            onRefine={(instruction) => {
+              stopPreview();
+              refine(instruction);
+            }}
+            onSuggestionClick={(s) => {
+              stopPreview();
+              refine(s);
+            }}
+          />
+        )}
 
-              {result.bpm && (
-                <Badge variant="outline" className="font-mono">
-                  {result.bpm} BPM
-                </Badge>
-              )}
-
-              <Separator />
-
-              <div className="space-y-1">
-                <span className="text-xs text-muted-foreground font-mono">
-                  Generated tracks:
-                </span>
-                <div className="flex gap-2 flex-wrap">
-                  {result.tracks.map((t) => {
-                    const info = SEQTRAK_TRACKS[t.channel as SeqtrackChannel];
-                    const noteCount = t.patterns[0]?.notes.length ?? 0;
-                    return (
-                      <Badge key={t.channel} variant="secondary" className="text-xs font-mono">
-                        {info?.name ?? `Ch ${t.channel}`} ({noteCount} notes)
-                      </Badge>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {result.suggestions.length > 0 && (
-                <>
-                  <Separator />
-                  <div className="space-y-1">
-                    <span className="text-xs text-muted-foreground font-mono">
-                      Suggestions:
-                    </span>
-                    {result.suggestions.map((s, i) => (
-                      <button
-                        key={i}
-                        className="block text-xs text-left text-muted-foreground hover:text-foreground transition-colors"
-                        onClick={() => {
-                          setPrompt(s);
-                          handleGenerate(s);
-                        }}
-                      >
-                        → {s}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
+        {/* History */}
+        {history.length > 0 && (
+          <ComposeHistory
+            history={history}
+            onRestore={(i) => {
+              stopPreview();
+              restoreFromHistory(i);
+            }}
+          />
         )}
       </div>
     </div>

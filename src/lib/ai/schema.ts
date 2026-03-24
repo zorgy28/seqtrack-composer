@@ -18,6 +18,12 @@ export const patternSchema = z.object({
 const trackEntrySchema = z.object({
   channel: z.number().describe("MIDI channel 1-11"),
   patterns: z.array(patternSchema),
+  soundPreset: z.object({
+    id: z.number(),
+    name: z.string(),
+    category: z.string(),
+  }).optional().describe("Recommended sound preset"),
+  reason: z.string().optional().describe("Why this sound was chosen"),
 });
 
 export const compositionResultSchema = z.object({
