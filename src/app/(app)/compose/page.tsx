@@ -195,7 +195,7 @@ export default function ComposePage() {
         {/* Presets */}
         <ComposePresets
           onSelect={(p) => {
-            setPrompt(p);
+            setPrompt((prev) => prev.trim() ? `${prev.trim()}, ${p}` : p);
           }}
           disabled={stage === "loading"}
         />

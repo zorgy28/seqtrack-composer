@@ -94,6 +94,8 @@ const MODEL_ID = 0x0c;
 export async function scanAllPresets(
   deviceId: string,
   onProgress: (progress: ScanProgress) => void,
+  /** Set of "bankMSB-bankLSB-programNumber" keys to skip (already scanned with real names) */
+  skipKeys?: Set<string>,
 ): Promise<SoundPreset[]> {
   const presets: SoundPreset[] = [];
 
@@ -109,6 +111,14 @@ export async function scanAllPresets(
     for (let lsb = config.lsbRange[0]; lsb <= config.lsbRange[1]; lsb++) {
       for (let pc = 0; pc < 128; pc++) {
         scanned++;
+
+        // Skip if already scanned with a real name
+        const slotKey = `${config.bankMSB}-${lsb}-${pc}`;
+        if (skipKeys?.has(slotKey)) {
+          onProgress({ current: scanned, total: totalSlots, currentName: "(cached)", engine: config.engine, channel: config.channel });
+          globalId++;
+          continue;
+        }
 
         // Send bank select + program change
         sendBankSelect(deviceId, config.channel, config.bankMSB, lsb);
@@ -129,6 +139,11 @@ export async function scanAllPresets(
 
         // Send and listen for response
         const name = await requestSoundName(deviceId, request, part);
+
+        // Log first few results for debugging
+        if (scanned <= 5 || (name && name.trim())) {
+          console.log(`[scan] LSB=${lsb} PC=${pc} → "${name ?? "(no response)"}"`);
+        }
 
         if (name && name.trim() && !isEmptyName(name)) {
           const category = classifyByName(name, config.categories, config.engine);
@@ -192,7 +207,7 @@ async function requestSoundName(
     const timeout = setTimeout(() => {
       cleanup();
       resolve(null);
-    }, 200);
+    }, 500);
 
     // Expected response address for sound name: [0x31, 0x00 + part, 0x00]
     const expectedAddrHi = 0x31;

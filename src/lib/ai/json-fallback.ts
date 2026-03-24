@@ -29,10 +29,11 @@ export async function generateWithFallback<T>(options: {
 
   // Fallback: ask for JSON in the prompt, parse manually
   const jsonInstruction = "\n\nIMPORTANT: You MUST respond with ONLY valid JSON. No markdown, no explanation, just the JSON object. The JSON must be parseable by JSON.parse().";
+  const thinkingDisable = "\n\nDo NOT use <think> tags or internal reasoning. Respond directly with the JSON.";
 
   const { text } = await generateText({
     model,
-    system: system + jsonInstruction,
+    system: system + jsonInstruction + thinkingDisable,
     prompt,
   });
 
@@ -44,27 +45,32 @@ export async function generateWithFallback<T>(options: {
  * Tries multiple extraction strategies.
  */
 function extractAndValidateJSON<T>(text: string, schema: ZodType<T>): T {
+  // Strip Qwen3-style <think>...</think> blocks that precede the actual JSON
+  const cleaned = text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+  // Use cleaned text for all extraction strategies
+  const effectiveText = cleaned || text;
+
   const extractors = [
     // Strategy 1: Trim whitespace and parse
-    () => JSON.parse(text.trim()),
+    () => JSON.parse(effectiveText.trim()),
     // Strategy 2: Extract from ```json ... ``` code fence
     () => {
-      const match = text.match(/```json\s*([\s\S]*?)\s*```/);
+      const match = effectiveText.match(/```json\s*([\s\S]*?)\s*```/);
       if (!match) throw new Error("No JSON code fence found");
       return JSON.parse(match[1]);
     },
     // Strategy 3: Extract from ``` ... ``` code fence
     () => {
-      const match = text.match(/```\s*([\s\S]*?)\s*```/);
+      const match = effectiveText.match(/```\s*([\s\S]*?)\s*```/);
       if (!match) throw new Error("No code fence found");
       return JSON.parse(match[1]);
     },
     // Strategy 4: Find first { ... } block (greedy)
     () => {
-      const start = text.indexOf("{");
-      const end = text.lastIndexOf("}");
+      const start = effectiveText.indexOf("{");
+      const end = effectiveText.lastIndexOf("}");
       if (start === -1 || end === -1 || end <= start) throw new Error("No JSON object found");
-      return JSON.parse(text.slice(start, end + 1));
+      return JSON.parse(effectiveText.slice(start, end + 1));
     },
   ];
 
@@ -101,7 +107,7 @@ function extractAndValidateJSON<T>(text: string, schema: ZodType<T>): T {
     : "Could not parse JSON from response";
 
   throw new Error(
-    `${hint}. Response starts with: "${text.slice(0, 300)}..."`
+    `${hint}. Response starts with: "${effectiveText.slice(0, 300)}..."`
   );
 }
 
@@ -115,8 +121,14 @@ function tryCoerceToSchema<T>(parsed: Record<string, unknown>, schema: ZodType<T
   const direct = schema.safeParse(parsed);
   if (direct.success) return direct.data;
 
-  // Try to normalize the structure to match our expected schema
-  const normalized = normalizeTranscriptionOutput(parsed);
+  // Fix common issue: tracks as object-map instead of array
+  // e.g., { "1": {...}, "2": {...} } → [{ channel: 1, ...}, { channel: 2, ...}]
+  const fixed = normalizeCommonIssues(parsed);
+  const fixedResult = schema.safeParse(fixed);
+  if (fixedResult.success) return fixedResult.data;
+
+  // Try transcription-specific normalization
+  const normalized = normalizeTranscriptionOutput(fixed);
   if (normalized) {
     const result = schema.safeParse(normalized);
     if (result.success) return result.data;
@@ -126,10 +138,11 @@ function tryCoerceToSchema<T>(parsed: Record<string, unknown>, schema: ZodType<T
   for (const key of Object.keys(parsed)) {
     const inner = parsed[key];
     if (inner && typeof inner === "object" && !Array.isArray(inner)) {
-      const result = schema.safeParse(inner);
+      const innerFixed = normalizeCommonIssues(inner as Record<string, unknown>);
+      const result = schema.safeParse(innerFixed);
       if (result.success) return result.data;
 
-      const innerNorm = normalizeTranscriptionOutput(inner as Record<string, unknown>);
+      const innerNorm = normalizeTranscriptionOutput(innerFixed);
       if (innerNorm) {
         const r2 = schema.safeParse(innerNorm);
         if (r2.success) return r2.data;
@@ -139,6 +152,60 @@ function tryCoerceToSchema<T>(parsed: Record<string, unknown>, schema: ZodType<T
 
   return null;
 }
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+/**
+ * Fix common LLM output issues before schema-specific normalization.
+ * Handles: tracks as object-map → array, missing fields, etc.
+ */
+function normalizeCommonIssues(parsed: Record<string, unknown>): Record<string, unknown> {
+  const result = { ...parsed };
+
+  // Convert tracks from object-map to array
+  // { tracks: { "1": {patterns:...}, "8": {patterns:...} } }
+  // → { tracks: [{ channel: 1, patterns:... }, { channel: 8, patterns:... }] }
+  if (result.tracks && typeof result.tracks === "object" && !Array.isArray(result.tracks)) {
+    const tracksObj = result.tracks as Record<string, any>;
+    const tracksArray: any[] = [];
+
+    for (const [key, value] of Object.entries(tracksObj)) {
+      if (value && typeof value === "object") {
+        const channelNum = parseInt(key, 10);
+        if (!isNaN(channelNum)) {
+          tracksArray.push({ channel: channelNum, ...value });
+        } else {
+          // Key might be a name like "kick" — try to find channel in the value
+          tracksArray.push(value);
+        }
+      }
+    }
+
+    if (tracksArray.length > 0) {
+      result.tracks = tracksArray;
+    }
+  }
+
+  // Ensure suggestions is an array
+  if (result.suggestions && !Array.isArray(result.suggestions)) {
+    result.suggestions = [String(result.suggestions)];
+  }
+  if (!result.suggestions) {
+    result.suggestions = [];
+  }
+
+  // Ensure description exists
+  if (!result.description && result.desc) {
+    result.description = result.desc;
+  }
+  if (!result.description) {
+    result.description = "";
+  }
+
+  return result;
+}
+
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

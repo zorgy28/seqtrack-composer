@@ -1,3 +1,5 @@
+export const maxDuration = 300; // 5 minutes for local LLM
+
 import { getModelWithOverride, supportsStructuredOutput } from "@/lib/ai/model-provider";
 import { generateWithFallback } from "@/lib/ai/json-fallback";
 import { enhanceResultSchema, type EnhanceAction } from "@/lib/ai/enhance-schema";

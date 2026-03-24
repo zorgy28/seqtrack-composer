@@ -17,12 +17,35 @@ interface ProjectContextValue {
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
 
+const AUTOSAVE_KEY = "seqtrack-current-project";
+
+function loadSavedProject(): Project {
+  if (typeof window === "undefined") return createEmptyProject();
+  try {
+    const saved = localStorage.getItem(AUTOSAVE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved) as Project;
+      if (parsed && parsed.tracks && parsed.bpm) return parsed;
+    }
+  } catch { /* ignore */ }
+  return createEmptyProject();
+}
+
+function autoSave(project: Project) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(project));
+  } catch { /* ignore — localStorage might be full */ }
+}
+
 export function ProjectProvider({ children }: { children: ReactNode }) {
-  const [project, setProjectState] = useState<Project>(() => createEmptyProject());
+  const [project, setProjectState] = useState<Project>(() => loadSavedProject());
   const [selectedChannel, setSelectedChannel] = useState<SeqtrackChannel>(1);
 
   const setProject = useCallback((p: Project) => {
-    setProjectState({ ...p, updatedAt: new Date().toISOString() });
+    const updated = { ...p, updatedAt: new Date().toISOString() };
+    setProjectState(updated);
+    autoSave(updated);
   }, []);
 
   const updatePattern = useCallback(
@@ -32,11 +55,13 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         const patterns = [...track.patterns];
         patterns[patternIndex] = pattern;
         track.patterns = patterns;
-        return {
+        const updated = {
           ...prev,
           tracks: { ...prev.tracks, [channel]: track },
           updatedAt: new Date().toISOString(),
         };
+        autoSave(updated);
+        return updated;
       });
     },
     [],

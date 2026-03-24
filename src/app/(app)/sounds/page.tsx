@@ -13,7 +13,6 @@ import {
 import {
   scanAllPresets,
   saveScannedPresets,
-  clearScannedPresets,
   downloadPresetsAsJSON,
   loadScannedPresets,
 } from "@/lib/midi/sound-scanner";
@@ -48,21 +47,9 @@ export default function SoundsPage() {
   // Scanning state
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState({ current: 0, total: 0, currentName: "" });
-  const [scannedPresets, setScannedPresets] = useState<SoundPreset[] | null>(() => {
-    if (typeof window === "undefined") return null;
-    const data = loadScannedPresets();
-    // Auto-clear bloated generated libraries (generic "Drum XX-YYY" names)
-    if (data && data.length > 500) {
-      const genericCount = data.filter((p) => /^(Drum|Synth|DX) \d/.test(p.name)).length;
-      if (genericCount > data.length * 0.5) {
-        // More than half are generic — this is generated, not scanned. Clear it.
-        clearScannedPresets();
-        invalidatePresetCache();
-        return null;
-      }
-    }
-    return data;
-  });
+  const [scannedPresets, setScannedPresets] = useState<SoundPreset[] | null>(() =>
+    typeof window !== "undefined" ? loadScannedPresets() : null,
+  );
 
   const trackInfo = SEQTRAK_TRACKS[selectedChannel];
   const trackSound = getTrackSound(selectedChannel);
@@ -112,18 +99,33 @@ export default function SoundsPage() {
     setVisibleCount(VISIBLE_LIMIT);
   }, []);
 
-  // Scan handler
+  // Scan handler — incremental: only scans slots that don't have real names yet
   const handleScan = useCallback(async () => {
     if (!isConnected) return;
     setIsScanning(true);
     setScanProgress({ current: 0, total: 0, currentName: "" });
     try {
-      // We need the device ID — useSoundControl uses useMidiConnection internally
-      // Import the midi-connection module to get the device
       const { getOutputs } = await import("@/lib/webmidi/midi-connection");
       const outputs = getOutputs();
       const seqtrack = outputs.find((o) => o.isSeqtrack);
       if (!seqtrack) return;
+
+      // Load existing data — build skip set for slots that already have real names
+      const existing = loadScannedPresets() ?? [];
+      const existingMap = new Map(
+        existing.map((p) => [`${p.bankMSB}-${p.bankLSB}-${p.programNumber}`, p])
+      );
+
+      // Skip keys: slots that already have real (non-generic) names
+      const skipKeys = new Set<string>();
+      for (const p of existing) {
+        if (!/^(Drum|Synth|DX) \d/.test(p.name)) {
+          skipKeys.add(`${p.bankMSB}-${p.bankLSB}-${p.programNumber}`);
+        }
+      }
+
+      const alreadyScanned = skipKeys.size;
+      console.log(`[scan] Skipping ${alreadyScanned} already-scanned slots`);
 
       const scannedFromDevice = await scanAllPresets(seqtrack.id, (progress) => {
         setScanProgress({
@@ -131,12 +133,25 @@ export default function SoundsPage() {
           total: progress.total,
           currentName: progress.currentName,
         });
-      });
+      }, skipKeys);
 
-      // Save scanned presets directly — these have real names from the device
-      saveScannedPresets(scannedFromDevice);
+      // Merge: new scan results overwrite existing, but keep any existing real names
+      // that weren't re-scanned (in case scan was partial)
+      const mergedMap = new Map(existingMap);
+      for (const p of scannedFromDevice) {
+        const key = `${p.bankMSB}-${p.bankLSB}-${p.programNumber}`;
+        mergedMap.set(key, p);
+      }
+      const merged = Array.from(mergedMap.values());
+
+      saveScannedPresets(merged);
       invalidatePresetCache();
-      setScannedPresets(scannedFromDevice);
+      setScannedPresets(merged);
+
+      const newNames = merged.filter(
+        (p) => !/^(Drum|Synth|DX) \d/.test(p.name)
+      ).length;
+      console.log(`[scan] ${newNames} real names (was ${alreadyScanned}), ${merged.length} total`);
     } finally {
       setIsScanning(false);
     }
