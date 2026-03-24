@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { Sparkles, Play, Square } from "lucide-react";
+import { Sparkles, Play, Square, FileMusic } from "lucide-react";
 import { StepGrid } from "@/components/editor/step-grid";
 import { useProject } from "@/providers/project-provider";
 import { applyDrumPatternToProject, createEmptyProject } from "@/lib/midi/pattern-generators";
@@ -11,12 +11,14 @@ import { downloadMidi } from "@/lib/midi/midi-export";
 import { useMidiConnection } from "@/hooks/use-midi-connection";
 import { Button } from "@/components/ui/button";
 import { EnhanceDialog } from "@/components/enhance/enhance-dialog";
+import { ImportDialog } from "@/components/editor/import-dialog";
 import { AudioMonitor } from "@/components/editor/audio-monitor";
 
 export default function EditorPage() {
   const { project, setProject } = useProject();
   const { device } = useMidiConnection();
   const [enhanceOpen, setEnhanceOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentStep, setCurrentStep] = useState<number | null>(null);
   const cancelPlayRef = useRef<(() => void) | null>(null);
@@ -109,6 +111,16 @@ export default function EditorPage() {
           Enhance
         </Button>
 
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={() => setImportOpen(true)}
+        >
+          <FileMusic className="w-3 h-3 mr-1" />
+          Import
+        </Button>
+
         <div className="flex-1" />
 
         <Button
@@ -152,6 +164,7 @@ export default function EditorPage() {
       <AudioMonitor />
 
       <EnhanceDialog open={enhanceOpen} onOpenChange={setEnhanceOpen} />
+      <ImportDialog open={importOpen} onOpenChange={setImportOpen} />
     </div>
   );
 }
