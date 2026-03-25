@@ -31,11 +31,35 @@ function loadSavedProject(): Project {
   return createEmptyProject();
 }
 
+let saveTimeout: ReturnType<typeof setTimeout> | null = null;
+let saveCount = 0;
+
+function checkStorageUsage() {
+  if (typeof window === "undefined") return;
+  let total = 0;
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key) total += localStorage.getItem(key)?.length ?? 0;
+  }
+  if (total > 4_000_000) { // 4MB warning (limit is usually 5-10MB)
+    console.warn(`[storage] Using ${(total / 1024 / 1024).toFixed(1)}MB of localStorage`);
+  }
+}
+
 function autoSave(project: Project) {
   if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(project));
-  } catch { /* ignore — localStorage might be full */ }
+  // Debounce: only save after 300ms of no changes
+  if (saveTimeout) clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(() => {
+    try {
+      localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(project));
+    } catch { /* localStorage full */ }
+    // Check storage usage every 10th save
+    saveCount++;
+    if (saveCount % 10 === 0) {
+      checkStorageUsage();
+    }
+  }, 300);
 }
 
 export function ProjectProvider({ children }: { children: ReactNode }) {

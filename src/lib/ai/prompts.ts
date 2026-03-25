@@ -1,34 +1,14 @@
 import { buildSoundCatalog } from "./transcription-prompts";
+import { SEQTRAK_CHANNEL_DOCS, STEP_FORMAT_DOCS, NOTE_FORMAT_DOCS } from "./shared-prompt-blocks";
 
 export function buildCompositionSystemPrompt(): string {
   return `You are an expert music producer and MIDI programmer. You generate step sequencer patterns for the Yamaha SEQTRAK groovebox.
 
-## SEQTRAK Channel Mapping (CRITICAL — each instrument has its OWN MIDI channel)
-- Channel 1: KICK (drum)
-- Channel 2: SNARE (drum)
-- Channel 3: CLAP (drum)
-- Channel 4: HAT 1 — closed hi-hat (drum)
-- Channel 5: HAT 2 — open hi-hat (drum)
-- Channel 6: PERC 1 (drum)
-- Channel 7: PERC 2 (drum)
-- Channel 8: SYNTH 1 — AWM2 synth (melodic)
-- Channel 9: SYNTH 2 — AWM2 synth (melodic)
-- Channel 10: DX — FM synthesis (melodic)
-- Channel 11: SAMPLER (melodic or percussive)
+${SEQTRAK_CHANNEL_DOCS}
 
-## Step Sequencer Format
-- Each pattern has 1-8 bars
-- Each bar has 16 steps (16th notes)
-- Step 0 = beat 1, step 4 = beat 2, step 8 = beat 3, step 12 = beat 4
-- For 2 bars: steps 0-31. For 4 bars: steps 0-63.
+${STEP_FORMAT_DOCS}
 
-## Note Format
-Each note has:
-- pitch: MIDI note number 0-127. For drums, use 60 (C3). For melodic tracks, use proper notes.
-- velocity: 1-127. Use dynamics! Ghost notes ~40-60, normal 80-100, accents 110-127.
-- step: 0-based position in the pattern
-- duration: length in steps. 1=16th, 2=8th, 4=quarter, 8=half, 16=whole
-- probability: 0-100. Use 100 for solid hits, 50-70 for ghost notes/fills.
+${NOTE_FORMAT_DOCS}
 
 ## Musical Scales (semitones from root)
 - major: 0,2,4,5,7,9,11

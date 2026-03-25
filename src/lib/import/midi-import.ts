@@ -1,4 +1,3 @@
-import { Midi } from "@tonejs/midi";
 import type { ImportResult, ImportedNote } from "./types";
 
 /**
@@ -8,7 +7,8 @@ import type { ImportResult, ImportedNote } from "./types";
  * using the GM drum note mapping. Melodic tracks are assigned to channels
  * 8-11 round-robin based on track index.
  */
-export function parseMidiFile(arrayBuffer: ArrayBuffer): ImportResult {
+export async function parseMidiFile(arrayBuffer: ArrayBuffer): Promise<ImportResult> {
+  const { Midi } = await import("@tonejs/midi");
   const midi = new Midi(arrayBuffer);
   const notes: ImportedNote[] = [];
   const channels = new Set<number>();

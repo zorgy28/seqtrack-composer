@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, memo } from "react";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import { useProject } from "@/providers/project-provider";
 import { useSoundControl } from "@/hooks/use-sound-control";
@@ -360,7 +360,7 @@ function PianoRollGrid({
 
 // ─── DrumTrackRow ──────────────────────────────────────────────
 
-function DrumTrackRow({
+const DrumTrackRow = memo(function DrumTrackRow({
   channel,
   currentStep,
 }: {
@@ -417,11 +417,11 @@ function DrumTrackRow({
       </div>
     </div>
   );
-}
+});
 
 // ─── MelodicTrackRow ───────────────────────────────────────────
 
-function MelodicTrackRow({
+const MelodicTrackRow = memo(function MelodicTrackRow({
   channel,
   currentStep,
 }: {
@@ -567,7 +567,7 @@ function MelodicTrackRow({
       />
     </div>
   );
-}
+});
 
 // ─── StepGrid (public export) ──────────────────────────────────
 

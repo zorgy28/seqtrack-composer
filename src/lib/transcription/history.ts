@@ -22,6 +22,15 @@ export interface TranscriptionHistoryEntry {
 const STORAGE_KEY = "seqtrack-transcription-history";
 const MAX_ENTRIES = 20;
 
+let historyTimeout: ReturnType<typeof setTimeout> | null = null;
+
+function saveToStorage(entries: TranscriptionHistoryEntry[]) {
+  if (historyTimeout) clearTimeout(historyTimeout);
+  historyTimeout = setTimeout(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+  }, 200);
+}
+
 export function getHistory(): TranscriptionHistoryEntry[] {
   if (typeof window === "undefined") return [];
   try {
@@ -39,12 +48,12 @@ export function addToHistory(entry: TranscriptionHistoryEntry): void {
   if (history.length > MAX_ENTRIES) {
     history.length = MAX_ENTRIES;
   }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+  saveToStorage(history);
 }
 
 export function removeFromHistory(id: string): void {
   const history = getHistory().filter((e) => e.id !== id);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+  saveToStorage(history);
 }
 
 export function getEntryById(id: string): TranscriptionHistoryEntry | null {
@@ -56,6 +65,6 @@ export function updateAppliedOption(id: string, index: number): void {
   const entry = history.find((e) => e.id === id);
   if (entry) {
     entry.appliedOptionIndex = index;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+    saveToStorage(history);
   }
 }

@@ -36,6 +36,7 @@ function WaveformCanvas({
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
+  const lastFrameRef = useRef(0);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -43,7 +44,14 @@ function WaveformCanvas({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    function draw() {
+    function draw(timestamp: number) {
+      // 30fps cap: skip frame if less than ~33ms elapsed
+      if (timestamp - lastFrameRef.current < 33) {
+        rafRef.current = requestAnimationFrame(draw);
+        return;
+      }
+      lastFrameRef.current = timestamp;
+
       const analyser = getAnalyser();
       if (!analyser || !canvas || !ctx) {
         rafRef.current = requestAnimationFrame(draw);
@@ -144,6 +152,7 @@ function SpectrumCanvas({
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
+  const lastFrameRef = useRef(0);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -151,7 +160,14 @@ function SpectrumCanvas({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    function draw() {
+    function draw(timestamp: number) {
+      // 30fps cap: skip frame if less than ~33ms elapsed
+      if (timestamp - lastFrameRef.current < 33) {
+        rafRef.current = requestAnimationFrame(draw);
+        return;
+      }
+      lastFrameRef.current = timestamp;
+
       const analyser = getAnalyser();
       if (!analyser || !canvas || !ctx) {
         rafRef.current = requestAnimationFrame(draw);

@@ -39,26 +39,9 @@ export function getAllPresets(): SoundPreset[] {
   return ALL_PRESETS;
 }
 
-/** Check whether a scanned library with real names is loaded (overrides positional names) */
-export function isCompleteLibrary(): boolean {
-  const scanned = loadScannedPresets();
-  return scanned !== null && scanned.length > 100;
-}
-
 /** Invalidate the cached scanned presets (call after a new scan) */
 export function invalidatePresetCache(): void {
   _cachedComplete = null;
-}
-
-/**
- * Get the full library — all 2032 presets.
- * Prefers scanned data (real names from device) when available.
- * Falls back to the complete built-in library with positional names.
- */
-export function getFullLibrary(): SoundPreset[] {
-  const scanned = loadScannedPresets();
-  if (scanned && scanned.length > 100) return scanned;
-  return ALL_PRESETS;
 }
 
 // ─── Query Functions ────────────────────────────────────────────

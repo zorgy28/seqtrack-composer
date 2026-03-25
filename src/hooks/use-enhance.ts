@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useCallback } from "react";
 import type { Project, Pattern } from "@/lib/midi/types";
+import { useAsyncOperation, type AsyncStage } from "./use-async-operation";
 
 export type EnhanceAction = "enhance" | "sounds" | "rearrange" | "all";
-export type EnhanceStage = "idle" | "loading" | "preview" | "error";
+export type EnhanceStage = AsyncStage;
 
 export interface EnhanceTrackResult {
   channel: number;
@@ -29,9 +30,7 @@ export interface UseEnhanceReturn {
 }
 
 export function useEnhance(): UseEnhanceReturn {
-  const [stage, setStage] = useState<EnhanceStage>("idle");
-  const [result, setResult] = useState<EnhanceResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { stage, result, error, run: runAsync, reset } = useAsyncOperation<EnhanceResult>();
 
   const run = useCallback(async (
     project: Project,
@@ -40,11 +39,7 @@ export function useEnhance(): UseEnhanceReturn {
     modelProvider?: string,
     modelId?: string,
   ) => {
-    setStage("loading");
-    setError(null);
-    setResult(null);
-
-    try {
+    await runAsync(async () => {
       const res = await fetch("/api/enhance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -56,20 +51,9 @@ export function useEnhance(): UseEnhanceReturn {
         throw new Error(`Enhancement failed (${res.status}): ${text}`);
       }
 
-      const data = await res.json() as EnhanceResult;
-      setResult(data);
-      setStage("preview");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      setStage("error");
-    }
-  }, []);
-
-  const reset = useCallback(() => {
-    setStage("idle");
-    setResult(null);
-    setError(null);
-  }, []);
+      return res.json() as Promise<EnhanceResult>;
+    });
+  }, [runAsync]);
 
   return { stage, result, error, run, reset };
 }

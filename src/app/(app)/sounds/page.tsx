@@ -6,7 +6,6 @@ import { useSoundControl } from "@/hooks/use-sound-control";
 import { useMidiConnection } from "@/hooks/use-midi-connection";
 import {
   getAllPresets,
-  getFullLibrary,
   getCategoriesForEngine,
   invalidatePresetCache,
 } from "@/lib/midi/sound-library";
@@ -93,7 +92,7 @@ export default function SoundsPage() {
 
   // Load full library (generated, no device needed)
   const handleLoadFullLibrary = useCallback(() => {
-    const full = getFullLibrary();
+    const full = getAllPresets();
     invalidatePresetCache();
     setScannedPresets(full);
     setVisibleCount(VISIBLE_LIMIT);

@@ -2,8 +2,9 @@
 
 import { useState, useCallback, useRef } from "react";
 import type { CompositionOutput } from "@/lib/ai/schema";
+import { useAsyncOperation, type AsyncStage } from "./use-async-operation";
 
-export type ComposeStage = "idle" | "loading" | "preview" | "error";
+export type ComposeStage = AsyncStage;
 
 const MAX_HISTORY = 5;
 
@@ -30,18 +31,14 @@ export interface UseComposeReturn {
 }
 
 export function useCompose(): UseComposeReturn {
-  const [stage, setStage] = useState<ComposeStage>("idle");
-  const [result, setResult] = useState<CompositionOutput | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { stage, result, error, run, setResult, reset: resetAsync } = useAsyncOperation<CompositionOutput>();
   const [history, setHistory] = useState<Array<{ params: ComposeParams; result: CompositionOutput; timestamp: number }>>([]);
   const lastParamsRef = useRef<ComposeParams | null>(null);
 
   const generate = useCallback(async (params: ComposeParams) => {
-    setStage("loading");
-    setError(null);
     lastParamsRef.current = params;
 
-    try {
+    await run(async () => {
       const res = await fetch("/api/compose", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -63,23 +60,17 @@ export function useCompose(): UseComposeReturn {
       }
 
       const data = await res.json() as CompositionOutput;
-      setResult(data);
       setHistory(prev => [{ params, result: data, timestamp: Date.now() }, ...prev].slice(0, MAX_HISTORY));
-      setStage("preview");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      setStage("error");
-    }
-  }, []);
+      return data;
+    });
+  }, [run]);
 
   const refine = useCallback(async (instruction: string) => {
     if (!result || !lastParamsRef.current) return;
 
-    setStage("loading");
-    setError(null);
+    const params = lastParamsRef.current;
 
-    try {
-      const params = lastParamsRef.current;
+    await run(async () => {
       const res = await fetch("/api/compose", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -103,28 +94,21 @@ export function useCompose(): UseComposeReturn {
       }
 
       const data = await res.json() as CompositionOutput;
-      setResult(data);
       setHistory(prev => [{ params, result: data, timestamp: Date.now() }, ...prev].slice(0, MAX_HISTORY));
-      setStage("preview");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      setStage("error");
-    }
-  }, [result]);
+      return data;
+    });
+  }, [result, run]);
 
   const reset = useCallback(() => {
-    setStage("idle");
-    setResult(null);
-    setError(null);
-  }, []);
+    resetAsync();
+  }, [resetAsync]);
 
   const restoreFromHistory = useCallback((index: number) => {
     const entry = history[index];
     if (!entry) return;
     setResult(entry.result);
     lastParamsRef.current = entry.params;
-    setStage("preview");
-  }, [history]);
+  }, [history, setResult]);
 
   return { stage, result, error, history, generate, refine, reset, restoreFromHistory };
 }
