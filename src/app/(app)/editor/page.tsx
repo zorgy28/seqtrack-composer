@@ -155,7 +155,7 @@ export default function EditorPage() {
       </div>
 
       {/* Step Grid */}
-      <div className="flex-1 overflow-auto p-3">
+      <div className="flex-1 overflow-auto p-3 pb-20">
         <StepGrid currentStep={currentStep} />
       </div>
 
