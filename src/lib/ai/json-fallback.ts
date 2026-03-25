@@ -175,11 +175,46 @@ function normalizeCommonIssues(parsed: Record<string, unknown>): Record<string, 
     for (const [key, value] of Object.entries(tracksObj)) {
       if (value && typeof value === "object") {
         const channelNum = parseInt(key, 10);
+        const track = value as Record<string, any>;
+
+        // Deep-fix: coerce string numbers to actual numbers in soundPreset
+        if (track.soundPreset && typeof track.soundPreset === "object") {
+          if (typeof track.soundPreset.id === "string") {
+            track.soundPreset.id = Number(track.soundPreset.id) || 0;
+          }
+        }
+
+        // Ensure patterns is an array
+        if (track.patterns && !Array.isArray(track.patterns)) {
+          track.patterns = [track.patterns];
+        }
+        if (!track.patterns) {
+          track.patterns = [];
+        }
+
+        // Deep-fix: coerce note fields to numbers
+        if (Array.isArray(track.patterns)) {
+          for (const p of track.patterns) {
+            if (p && typeof p === "object") {
+              if (typeof p.bars === "string") p.bars = Number(p.bars) || 1;
+              if (typeof p.swing === "string") p.swing = Number(p.swing) || 0;
+              if (Array.isArray(p.notes)) {
+                for (const n of p.notes) {
+                  if (typeof n.pitch === "string") n.pitch = Number(n.pitch);
+                  if (typeof n.velocity === "string") n.velocity = Number(n.velocity);
+                  if (typeof n.step === "string") n.step = Number(n.step);
+                  if (typeof n.duration === "string") n.duration = Number(n.duration);
+                  if (typeof n.probability === "string") n.probability = Number(n.probability);
+                }
+              }
+            }
+          }
+        }
+
         if (!isNaN(channelNum)) {
-          tracksArray.push({ channel: channelNum, ...value });
+          tracksArray.push({ channel: channelNum, ...track });
         } else {
-          // Key might be a name like "kick" — try to find channel in the value
-          tracksArray.push(value);
+          tracksArray.push(track);
         }
       }
     }
