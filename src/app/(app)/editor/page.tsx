@@ -12,7 +12,6 @@ import { useMidiConnection } from "@/hooks/use-midi-connection";
 import { Button } from "@/components/ui/button";
 import { EnhanceDialog } from "@/components/enhance/enhance-dialog";
 import { ImportDialog } from "@/components/editor/import-dialog";
-import { AudioMonitor } from "@/components/editor/audio-monitor";
 
 export default function EditorPage() {
   const { project, setProject } = useProject();
@@ -159,9 +158,6 @@ export default function EditorPage() {
       <div className="flex-1 overflow-auto p-3">
         <StepGrid currentStep={currentStep} />
       </div>
-
-      {/* Audio Monitor */}
-      <AudioMonitor />
 
       <EnhanceDialog open={enhanceOpen} onOpenChange={setEnhanceOpen} />
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} />

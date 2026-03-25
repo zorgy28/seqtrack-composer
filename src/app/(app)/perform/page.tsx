@@ -1,7 +1,11 @@
 "use client";
 
+import { useCallback } from "react";
+import { RotateCcw } from "lucide-react";
 import { useHandTracking } from "@/hooks/use-hand-tracking";
 import { useMidiConnection } from "@/hooks/use-midi-connection";
+import { CC_PARAMS } from "@/lib/midi/cc-map";
+import { Button } from "@/components/ui/button";
 import { HandTrackingPanel } from "@/components/perform/hand-tracking-panel";
 import { MappingPanel } from "@/components/perform/mapping-panel";
 import { OutputMonitor } from "@/components/perform/output-monitor";
@@ -30,6 +34,18 @@ export default function PerformPage() {
   } = useHandTracking();
 
   const handCount = frame?.hands.length ?? 0;
+
+  // Reset all active FX mappings to their default CC values
+  const resetFX = useCallback(async () => {
+    if (!device) return;
+    const { sendCC } = await import("@/lib/webmidi/midi-sender");
+    for (const mapping of mappings) {
+      if (!mapping.enabled) continue;
+      const param = CC_PARAMS.find((p) => p.cc === mapping.cc);
+      const defaultValue = param?.defaultValue ?? 64;
+      sendCC(device.id, mapping.channel, mapping.cc, defaultValue);
+    }
+  }, [device, mappings]);
 
   return (
     <div className="flex flex-col h-full overflow-auto">
@@ -76,8 +92,22 @@ export default function PerformPage() {
           </div>
         </div>
 
-        {/* CC output gauges */}
-        <OutputMonitor ccOutputs={ccOutputs} isTracking={isTracking} />
+        {/* CC output gauges + FX reset */}
+        <div className="flex items-start gap-3">
+          <div className="flex-1">
+            <OutputMonitor ccOutputs={ccOutputs} isTracking={isTracking} />
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={resetFX}
+            disabled={!device || mappings.length === 0}
+            title="Reset all mapped FX parameters to defaults"
+          >
+            <RotateCcw className="size-4 mr-1.5" />
+            Reset FX
+          </Button>
+        </div>
       </div>
     </div>
   );

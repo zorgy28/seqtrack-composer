@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: "/perform", label: "Perform", icon: "##" },
   { href: "/device", label: "Device", icon: "->" },
   { href: "/projects", label: "Projects", icon: "/." },
+  { href: "/settings", label: "Settings", icon: "\u2699" },
 ];
 
 export function AppSidebar() {
