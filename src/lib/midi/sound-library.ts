@@ -89,3 +89,15 @@ export function getAllCategories(): SoundCategory[] {
   for (const p of getAllPresets()) categories.add(p.category);
   return Array.from(categories);
 }
+
+/** Find a preset by its Bank Select MSB/LSB and Program Change number */
+export function findPresetByBankPC(
+  bankMSB: number,
+  bankLSB: number,
+  programNumber: number,
+): SoundPreset | null {
+  const presets = getAllPresets();
+  return presets.find(
+    (p) => p.bankMSB === bankMSB && p.bankLSB === bankLSB && p.programNumber === programNumber,
+  ) ?? null;
+}

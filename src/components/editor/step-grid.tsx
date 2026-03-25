@@ -565,23 +565,30 @@ export function StepGrid({ currentStep }: { currentStep?: number | null }) {
   return (
     <div className="space-y-0">
       {/* Beat numbers header */}
-      <div className="flex items-center gap-0">
+      <div className="flex items-end gap-0">
         <div className="w-24 shrink-0" />
         <div className="w-6 shrink-0" />
         <div className="w-14 shrink-0" />
         <div className="flex gap-px flex-1 pr-2">
-          {Array.from({ length: totalSteps }, (_, step) => (
-            <div
-              key={step}
-              className={cn(
-                "h-5 w-full text-center text-[9px] font-mono",
-                step % 4 === 0 ? "text-muted-foreground" : "text-muted-foreground/30",
-                currentStep === step && "text-primary font-bold",
-              )}
-            >
-              {step % 4 === 0 ? step / 4 + 1 : ""}
-            </div>
-          ))}
+          {Array.from({ length: totalSteps }, (_, step) => {
+            const isActive = currentStep === step;
+            const isBeat = step % 4 === 0;
+            return (
+              <div
+                key={step}
+                className={cn(
+                  "w-full text-center font-mono transition-all duration-100",
+                  isActive
+                    ? "text-primary font-extrabold text-base h-7 leading-7"
+                    : isBeat
+                      ? "text-muted-foreground text-[9px] h-5 leading-5"
+                      : "text-muted-foreground/30 text-[9px] h-5 leading-5",
+                )}
+              >
+                {isBeat ? step / 4 + 1 : isActive ? (step % 4) + 1 : ""}
+              </div>
+            );
+          })}
         </div>
       </div>
 

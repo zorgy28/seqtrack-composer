@@ -177,9 +177,29 @@ export function playPatternLooped(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Timing Worker — keeps MIDI playback precise even in background tabs.
+// Chrome throttles main-thread setInterval to 1s min in hidden tabs,
+// but Web Workers maintain full-speed timing regardless.
+// ---------------------------------------------------------------------------
+
+let sharedWorker: Worker | null = null;
+
+function getTimingWorker(): Worker | null {
+  if (typeof window === "undefined") return null;
+  if (!sharedWorker) {
+    try {
+      sharedWorker = new Worker("/timing-worker.js");
+    } catch {
+      return null; // fallback to setInterval
+    }
+  }
+  return sharedWorker;
+}
+
 /**
  * Play multiple patterns in a continuous loop with step-level cursor callback.
- * Uses setInterval at step resolution for smooth UI updates.
+ * Uses a Web Worker for timing so playback continues in background tabs.
  *
  * Accepts a `getState` function that is called every tick to read the LIVE
  * project state. This means mute/unmute and pattern edits take effect
@@ -204,7 +224,7 @@ export function playPatternLoopedWithCursor(
   let currentStep = 0;
   let cancelled = false;
 
-  const interval = setInterval(() => {
+  function tick() {
     if (cancelled) return;
 
     onStep(currentStep);
@@ -234,14 +254,39 @@ export function playPatternLoopedWithCursor(
     }
 
     currentStep = (currentStep + 1) % liveTotalSteps;
-  }, sMs);
+  }
+
+  // Try worker-based timing (background-tab safe), fall back to setInterval
+  const worker = getTimingWorker();
+  let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+
+  if (worker) {
+    worker.onmessage = () => tick();
+    worker.postMessage({ type: "start", intervalMs: sMs });
+  } else {
+    fallbackInterval = setInterval(tick, sMs);
+  }
 
   // Fire initial step
   onStep(0);
 
+  // Request Wake Lock to prevent OS suspension during playback
+  let wakeLock: WakeLockSentinel | null = null;
+  if ("wakeLock" in navigator) {
+    navigator.wakeLock.request("screen").then(
+      (wl) => { if (!cancelled) wakeLock = wl; else wl.release(); },
+      () => {},
+    );
+  }
+
   return () => {
     cancelled = true;
-    clearInterval(interval);
+    if (worker) {
+      worker.postMessage({ type: "stop" });
+      worker.onmessage = null;
+    }
+    if (fallbackInterval !== null) clearInterval(fallbackInterval);
+    wakeLock?.release();
     sendAllNotesOff(deviceId);
   };
 }

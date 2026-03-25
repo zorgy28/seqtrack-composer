@@ -194,6 +194,26 @@ export function useAudioMonitor(): UseAudioMonitorReturn {
     return stateRef.current?.analyser ?? null;
   }, []);
 
+  // Resume AudioContext and level loop when tab becomes visible again
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.hidden) {
+        // Tab hidden: pause visualization RAF (saves CPU)
+        stopLevelLoop();
+      } else {
+        // Tab visible: resume AudioContext if it was suspended
+        const s = stateRef.current;
+        if (s && s.audioContext.state === "suspended") {
+          s.audioContext.resume();
+        }
+        if (s) startLevelLoop();
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [startLevelLoop, stopLevelLoop]);
+
   // Clean up on unmount
   useEffect(() => {
     return () => {
