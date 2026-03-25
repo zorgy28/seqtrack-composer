@@ -1,8 +1,11 @@
 import { anthropic } from "@ai-sdk/anthropic";
+import { google } from "@ai-sdk/google";
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
+import { getSettings } from "@/lib/settings";
 
-export type LLMProvider = "claude" | "lmstudio";
+export type LLMProvider = "claude" | "gemini" | "openrouter" | "lmstudio";
 
 // Custom fetch with 5-minute timeout for local LLMs (they can be slow)
 const lmStudioFetch: typeof fetch = (url, init) => {
@@ -24,16 +27,34 @@ function createLMStudioProvider() {
 }
 
 /**
- * Return the configured AI SDK model based on environment variables.
+ * Return the configured AI SDK model based on settings store.
  */
 export function getModel(): LanguageModel {
-  const provider = process.env.LLM_PROVIDER || "claude";
+  const settings = getSettings();
+  const provider = settings.llmProvider;
 
-  if (provider === "lmstudio") {
-    return createLMStudioProvider()(process.env.LM_STUDIO_MODEL || "minimax/minimax-m2.5");
+  if (provider === "claude") {
+    return anthropic(settings.claudeModel || "claude-sonnet-4-6");
   }
 
-  return anthropic("claude-sonnet-4-20250514");
+  if (provider === "gemini") {
+    return google(settings.geminiModel || "gemini-2.5-flash");
+    // Note: @ai-sdk/google reads GOOGLE_GENERATIVE_AI_API_KEY from env
+    // or we can pass apiKey in settings
+  }
+
+  if (provider === "openrouter") {
+    const openrouter = createOpenRouter({
+      apiKey: settings.openrouterApiKey || process.env.OPENROUTER_API_KEY || "",
+    });
+    return openrouter(settings.openrouterModel || "anthropic/claude-sonnet-4.5");
+  }
+
+  if (provider === "lm-studio") {
+    return createLMStudioProvider()(settings.lmStudioModel || "minimax/minimax-m2.5");
+  }
+
+  return anthropic("claude-sonnet-4-6");
 }
 
 /**
@@ -43,9 +64,25 @@ export function getModelWithOverride(
   provider?: string,
   modelId?: string,
 ): LanguageModel {
-  const effectiveProvider = provider || process.env.LLM_PROVIDER || "claude";
+  const settings = getSettings();
+  const effectiveProvider = provider || settings.llmProvider;
 
-  if (effectiveProvider === "lmstudio" && modelId) {
+  if (effectiveProvider === "claude" && modelId) {
+    return anthropic(modelId);
+  }
+
+  if (effectiveProvider === "gemini" && modelId) {
+    return google(modelId);
+  }
+
+  if (effectiveProvider === "openrouter" && modelId) {
+    const openrouter = createOpenRouter({
+      apiKey: settings.openrouterApiKey || process.env.OPENROUTER_API_KEY || "",
+    });
+    return openrouter(modelId);
+  }
+
+  if (effectiveProvider === "lm-studio" && modelId) {
     return createLMStudioProvider()(modelId);
   }
 
@@ -54,8 +91,10 @@ export function getModelWithOverride(
 
 /** Whether the given provider natively supports Zod structured output */
 export function supportsStructuredOutput(provider?: string): boolean {
-  const p = provider || process.env.LLM_PROVIDER || "claude";
-  return p === "claude";
+  const p = provider || getSettings().llmProvider;
+  // Claude, Gemini, and most OpenRouter models support structured output
+  return p === "claude" || p === "gemini";
+  // OpenRouter and LM Studio use the JSON fallback
 }
 
 /**

@@ -5,8 +5,11 @@ import { useMidiConnection } from "@/hooks/use-midi-connection";
 import { OneEuroFilter } from "@/lib/handtracking/one-euro-filter";
 import type {
   CCOutput,
+  FaceAxes,
+  FaceLandmarks,
   GestureMapping,
   HandDetectionResult,
+  HandSign,
   HandState,
   HandTrackingConfig,
   ModelLoadStatus,
@@ -28,6 +31,9 @@ interface MediaPipeLoaderModule {
   detectHands: typeof import("@/lib/handtracking/mediapipe-loader").detectHands;
   detectGPUCapabilities: typeof import("@/lib/handtracking/mediapipe-loader").detectGPUCapabilities;
   disposeHandLandmarker: typeof import("@/lib/handtracking/mediapipe-loader").disposeHandLandmarker;
+  initFaceLandmarker: typeof import("@/lib/handtracking/mediapipe-loader").initFaceLandmarker;
+  detectFace: typeof import("@/lib/handtracking/mediapipe-loader").detectFace;
+  disposeFaceLandmarker: typeof import("@/lib/handtracking/mediapipe-loader").disposeFaceLandmarker;
 }
 
 interface GestureExtractorModule {
@@ -45,6 +51,18 @@ interface MidiSenderModule {
 interface LandmarkRendererModule {
   drawLandmarks: typeof import("@/lib/handtracking/landmark-renderer").drawLandmarks;
   drawGestureIndicators: typeof import("@/lib/handtracking/landmark-renderer").drawGestureIndicators;
+}
+
+interface FaceExtractorModule {
+  extractFaceAxes: typeof import("@/lib/handtracking/face-extractor").extractFaceAxes;
+}
+
+interface SignDetectorModule {
+  detectHandSign: typeof import("@/lib/handtracking/sign-detector").detectHandSign;
+}
+
+interface FaceRendererModule {
+  drawFaceMesh: typeof import("@/lib/handtracking/face-renderer").drawFaceMesh;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────

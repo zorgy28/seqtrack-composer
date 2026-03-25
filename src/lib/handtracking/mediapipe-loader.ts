@@ -7,9 +7,10 @@
 import {
   FilesetResolver,
   HandLandmarker,
+  FaceLandmarker,
 } from "@mediapipe/tasks-vision";
 
-import type { HandDetectionResult, HandTrackingConfig, Handedness } from "./types";
+import type { FaceDetectionResult, HandDetectionResult, HandTrackingConfig, Handedness } from "./types";
 
 // ─── Constants ──────────────────────────────────────────────────
 
@@ -17,6 +18,9 @@ const WASM_CDN = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm";
 
 const MODEL_CDN =
   "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
+
+const FACE_MODEL_CDN =
+  "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
 // ─── GPU Capabilities ───────────────────────────────────────────
 
@@ -156,5 +160,97 @@ export function detectHands(
  * Closes and releases all resources held by the `HandLandmarker` instance.
  */
 export function disposeHandLandmarker(landmarker: HandLandmarker): void {
+  landmarker.close();
+}
+
+// ─── Face Landmarker Init ───────────────────────────────────────
+
+/**
+ * Creates and returns a fully initialised `FaceLandmarker` using the MediaPipe
+ * WASM runtime loaded from CDN.
+ *
+ * @param config - Hand tracking configuration (reuses confidence thresholds)
+ * @returns A ready-to-use `FaceLandmarker` instance.
+ */
+export async function initFaceLandmarker(
+  config: HandTrackingConfig,
+): Promise<FaceLandmarker> {
+  let vision;
+  try {
+    vision = await FilesetResolver.forVisionTasks(WASM_CDN);
+  } catch (err) {
+    throw new Error(
+      "Failed to download face tracking runtime. Check your internet connection. " +
+      `(${err instanceof Error ? err.message : "Unknown error"})`,
+    );
+  }
+
+  try {
+    return await FaceLandmarker.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: FACE_MODEL_CDN,
+        delegate: "GPU",
+      },
+      runningMode: "VIDEO",
+      numFaces: 1,
+      outputFaceBlendshapes: true,
+      outputFacialTransformationMatrixes: false,
+      minFaceDetectionConfidence: config.minDetectionConfidence,
+      minFacePresenceConfidence: config.minDetectionConfidence,
+      minTrackingConfidence: config.minTrackingConfidence,
+    });
+  } catch (err) {
+    throw new Error(
+      "Failed to initialize face tracking model. Your browser may not support GPU acceleration. " +
+      `(${err instanceof Error ? err.message : "Unknown error"})`,
+    );
+  }
+}
+
+// ─── Face Detection ─────────────────────────────────────────────
+
+/**
+ * Runs face landmark detection on a single video frame and converts the
+ * MediaPipe result into the app's `FaceDetectionResult` type.
+ *
+ * @param landmarker   - An initialised `FaceLandmarker` (running mode "VIDEO")
+ * @param video        - The `<video>` element providing camera frames
+ * @param timestampMs  - Frame timestamp in milliseconds (must be monotonically
+ *                       increasing between calls)
+ * @returns Detected face landmarks and blendshape scores.
+ */
+export function detectFace(
+  landmarker: FaceLandmarker,
+  video: HTMLVideoElement,
+  timestampMs: number,
+): FaceDetectionResult {
+  const raw = landmarker.detectForVideo(video, timestampMs);
+
+  // Convert blendshape classifications to a Map<string, number>
+  const blendshapes = new Map<string, number>();
+  if (raw.faceBlendshapes && raw.faceBlendshapes.length > 0) {
+    const categories = raw.faceBlendshapes[0].categories;
+    for (const cat of categories) {
+      blendshapes.set(cat.categoryName, cat.score);
+    }
+  }
+
+  // Extract first face landmarks, converting to our NormalizedLandmark format
+  const landmarks = (raw.faceLandmarks ?? []).map((face) =>
+    face.map((lm) => ({ x: lm.x, y: lm.y, z: lm.z })),
+  );
+
+  return {
+    landmarks,
+    blendshapes,
+  };
+}
+
+// ─── Face Disposal ──────────────────────────────────────────────
+
+/**
+ * Closes and releases all resources held by the `FaceLandmarker` instance.
+ */
+export function disposeFaceLandmarker(landmarker: FaceLandmarker): void {
   landmarker.close();
 }

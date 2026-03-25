@@ -215,6 +215,152 @@ export const PRESET_SOUND_SCULPTOR: MappingPreset = {
   mappings: soundSculptorMappings,
 };
 
+// ─── Preset 5: Face FX ──────────────────────────────────────────
+
+const faceFxMappings: GestureMapping[] = [
+  {
+    id: "facefx-jawopen-cutoff",
+    name: "Jaw Open → Filter Cutoff",
+    hand: "any",
+    axis: "jawOpen",
+    channel: 8,
+    cc: 74,
+    inputRange: [0, 1],
+    outputRange: [0, 127],
+    invert: false,
+    enabled: true,
+  },
+  {
+    id: "facefx-smile-delay",
+    name: "Mouth Smile → Delay Send",
+    hand: "any",
+    axis: "mouthSmile",
+    channel: 8,
+    cc: 94,
+    inputRange: [0, 1],
+    outputRange: [0, 127],
+    invert: false,
+    enabled: true,
+  },
+  {
+    id: "facefx-brow-reverb",
+    name: "Brow Raise → Reverb Send",
+    hand: "any",
+    axis: "browInnerUp",
+    channel: 8,
+    cc: 91,
+    inputRange: [0, 1],
+    outputRange: [0, 127],
+    invert: false,
+    enabled: true,
+  },
+  {
+    id: "facefx-cheekpuff-masterfx1",
+    name: "Cheek Puff → Master FX1 Param 1",
+    hand: "any",
+    axis: "cheekPuff",
+    channel: 8,
+    cc: 102,
+    inputRange: [0, 1],
+    outputRange: [0, 127],
+    invert: false,
+    enabled: true,
+  },
+];
+
+export const PRESET_FACE_FX: MappingPreset = {
+  id: "face-fx",
+  name: "Face FX",
+  description:
+    "Face-only control: jaw opens the filter, smiling adds delay, eyebrow raise adds reverb, cheek puff triggers master effect.",
+  mappings: faceFxMappings,
+};
+
+// ─── Preset 6: Full Body FX ────────────────────────────────────
+
+const fullBodyMappings: GestureMapping[] = [
+  {
+    id: "fullbody-left-palmx-cutoff",
+    name: "Left Palm X → Filter Cutoff",
+    hand: "Left",
+    axis: "palmX",
+    channel: 8,
+    cc: 74,
+    inputRange: [0, 1],
+    outputRange: [0, 127],
+    invert: false,
+    enabled: true,
+  },
+  {
+    id: "fullbody-right-pinch-resonance",
+    name: "Right Pinch → Resonance",
+    hand: "Right",
+    axis: "pinchThumbIndex",
+    channel: 8,
+    cc: 71,
+    inputRange: [0, 1],
+    outputRange: [0, 127],
+    invert: false,
+    enabled: true,
+  },
+  {
+    id: "fullbody-jawopen-reverb",
+    name: "Jaw Open → Reverb Send",
+    hand: "any",
+    axis: "jawOpen",
+    channel: 8,
+    cc: 91,
+    inputRange: [0, 1],
+    outputRange: [0, 127],
+    invert: false,
+    enabled: true,
+  },
+  {
+    id: "fullbody-smile-delay",
+    name: "Mouth Smile → Delay Send",
+    hand: "any",
+    axis: "mouthSmile",
+    channel: 8,
+    cc: 94,
+    inputRange: [0, 1],
+    outputRange: [0, 127],
+    invert: false,
+    enabled: true,
+  },
+  {
+    id: "fullbody-brow-masterfx1",
+    name: "Brow Raise → Master FX1",
+    hand: "any",
+    axis: "browInnerUp",
+    channel: 8,
+    cc: 102,
+    inputRange: [0, 1],
+    outputRange: [0, 127],
+    invert: false,
+    enabled: true,
+  },
+  {
+    id: "fullbody-eyewide-insertfx1",
+    name: "Eyes Wide → Insert FX1",
+    hand: "any",
+    axis: "eyeWide",
+    channel: 8,
+    cc: 107,
+    inputRange: [0, 1],
+    outputRange: [0, 127],
+    invert: false,
+    enabled: true,
+  },
+];
+
+export const PRESET_FULL_BODY: MappingPreset = {
+  id: "full-body",
+  name: "Full Body FX",
+  description:
+    "Combined hands and face: left hand sweeps filter, right hand pinch controls resonance, facial expressions drive reverb, delay, and effects.",
+  mappings: fullBodyMappings,
+};
+
 // ─── All Presets ───────────────────────────────────────────────
 
 export const ALL_PRESETS: MappingPreset[] = [
@@ -222,4 +368,6 @@ export const ALL_PRESETS: MappingPreset[] = [
   PRESET_FILTER_SWEEP,
   PRESET_DUB_DELAY,
   PRESET_SOUND_SCULPTOR,
+  PRESET_FACE_FX,
+  PRESET_FULL_BODY,
 ];

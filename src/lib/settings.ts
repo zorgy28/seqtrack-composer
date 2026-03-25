@@ -5,9 +5,9 @@
 const STORAGE_KEY = "seqtrack-settings";
 
 export type PlaybackMode = "device" | "internal" | "both";
-export type LlmProvider = "claude" | "lm-studio";
+export type LlmProvider = "claude" | "gemini" | "openrouter" | "lm-studio";
 export type StepGridSize = "compact" | "normal" | "large";
-export type StemModel = "htdemucs" | "htdemucs_6s" | "mdx_extra";
+export type StemModel = "htdemucs" | "htdemucs_6s" | "htdemucs_ft";
 
 export interface AppSettings {
   // Audio & MIDI
@@ -17,6 +17,11 @@ export interface AppSettings {
 
   // AI & Models
   llmProvider: LlmProvider;
+  claudeModel: string;
+  geminiApiKey: string;
+  geminiModel: string;
+  openrouterApiKey: string;
+  openrouterModel: string;
   lmStudioUrl: string;
   lmStudioModel: string;
   temperature: number; // 0-1
@@ -49,6 +54,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   playbackMode: "device",
 
   llmProvider: "claude",
+  claudeModel: "claude-sonnet-4-6",
+  geminiApiKey: "",
+  geminiModel: "gemini-2.5-flash",
+  openrouterApiKey: "",
+  openrouterModel: "anthropic/claude-sonnet-4.5",
   lmStudioUrl: "http://169.254.48.100:1235/v1",
   lmStudioModel: "minimax/minimax-m2.5",
   temperature: 0.3,

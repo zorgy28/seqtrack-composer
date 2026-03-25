@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Card,
   CardHeader,
@@ -64,9 +64,85 @@ function ToggleButton({
   );
 }
 
-function FieldLabel({ children }: { children: React.ReactNode }) {
+function FieldLabel({ children, hint }: { children: React.ReactNode; hint?: string }) {
   return (
-    <span className="text-xs font-medium text-muted-foreground">{children}</span>
+    <div>
+      <span className="text-xs font-medium text-muted-foreground">{children}</span>
+      {hint && <p className="text-[10px] text-muted-foreground/60 mt-0.5">{hint}</p>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// LM Studio Model Selector (fetches available models)
+// ---------------------------------------------------------------------------
+
+function LMStudioModelSelector({
+  url,
+  currentModel,
+  onChange,
+}: {
+  url: string;
+  currentModel: string;
+  onChange: (model: string) => void;
+}) {
+  const [models, setModels] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchModels() {
+      setLoading(true);
+      try {
+        const res = await fetch("/api/models");
+        if (res.ok) {
+          const data = await res.json();
+          if (!cancelled) setModels((data.models ?? []).map((m: { id: string }) => m.id));
+        }
+      } catch { /* ignore */ }
+      finally { if (!cancelled) setLoading(false); }
+    }
+    fetchModels();
+    return () => { cancelled = true; };
+  }, [url]);
+
+  return (
+    <div className="space-y-1.5">
+      <FieldLabel hint="Select from models currently loaded in LM Studio. Qwen 2.5/3 72B recommended for best JSON output.">
+        LM Studio Model
+      </FieldLabel>
+      {loading ? (
+        <p className="text-xs text-muted-foreground">Loading models...</p>
+      ) : models.length > 0 ? (
+        <div className="flex flex-col gap-1">
+          {models.map((m) => (
+            <button
+              key={m}
+              onClick={() => onChange(m)}
+              className={cn(
+                "w-full text-left rounded-lg border px-3 py-1.5 text-xs transition-colors",
+                currentModel === m
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-input text-muted-foreground hover:border-foreground/30"
+              )}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <>
+          <p className="text-[10px] text-muted-foreground/60">No models found. Make sure LM Studio is running and has models loaded.</p>
+          <input
+            type="text"
+            value={currentModel}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="model-name"
+            className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </>
+      )}
+    </div>
   );
 }
 
@@ -210,47 +286,168 @@ export default function SettingsPage() {
         <CardContent className="space-y-4">
           {/* Provider toggle */}
           <div className="space-y-1.5">
-            <FieldLabel>Provider</FieldLabel>
+            <FieldLabel hint="Choose your AI provider. Claude uses the Anthropic API key from .env.local. Others need their own key.">Provider</FieldLabel>
             <div className="flex gap-2">
-              {(["claude", "lm-studio"] as LlmProvider[]).map((p) => (
+              {(["claude", "gemini", "openrouter", "lm-studio"] as LlmProvider[]).map((p) => (
                 <ToggleButton
                   key={p}
                   active={settings.llmProvider === p}
-                  label={p === "claude" ? "Claude" : "LM Studio"}
+                  label={{ claude: "Claude", gemini: "Gemini", openrouter: "OpenRouter", "lm-studio": "LM Studio" }[p]}
                   onClick={() => handleChange({ llmProvider: p })}
                 />
               ))}
             </div>
           </div>
 
-          {/* LM Studio URL */}
-          <div className="space-y-1.5">
-            <FieldLabel>LM Studio URL</FieldLabel>
-            <input
-              type="text"
-              value={settings.lmStudioUrl}
-              onChange={(e) => handleChange({ lmStudioUrl: e.target.value })}
-              placeholder="http://localhost:1234/v1"
-              className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-          </div>
+          {/* ---- Claude ---- */}
+          {settings.llmProvider === "claude" && (
+            <div className="space-y-1.5">
+              <FieldLabel hint="Sonnet 4.6 recommended — best balance of speed and quality for music generation.">Claude Model</FieldLabel>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { id: "claude-opus-4-6", label: "Opus 4.6", desc: "Most capable, deep reasoning" },
+                  { id: "claude-sonnet-4-6", label: "Sonnet 4.6", desc: "Recommended — fast + high quality" },
+                  { id: "claude-sonnet-4-20250514", label: "Sonnet 4", desc: "Previous gen, proven reliable" },
+                  { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5", desc: "Fastest, most affordable" },
+                ].map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => handleChange({ claudeModel: m.id })}
+                    className={cn(
+                      "flex flex-col items-start rounded-lg border px-3 py-1.5 text-left transition-colors",
+                      settings.claudeModel === m.id
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-input text-muted-foreground hover:border-foreground/30"
+                    )}
+                  >
+                    <span className="text-xs font-medium">{m.label}</span>
+                    <span className="text-[10px] opacity-60">{m.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
-          {/* LM Studio model */}
-          <div className="space-y-1.5">
-            <FieldLabel>LM Studio Model</FieldLabel>
-            <input
-              type="text"
-              value={settings.lmStudioModel}
-              onChange={(e) => handleChange({ lmStudioModel: e.target.value })}
-              placeholder="model-name"
-              className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-          </div>
+          {/* ---- Gemini ---- */}
+          {settings.llmProvider === "gemini" && (
+            <>
+              <div className="space-y-1.5">
+                <FieldLabel hint="Get yours at ai.google.dev">Gemini API Key</FieldLabel>
+                <input
+                  type="password"
+                  value={settings.geminiApiKey}
+                  onChange={(e) => handleChange({ geminiApiKey: e.target.value })}
+                  placeholder="AIza..."
+                  className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <FieldLabel hint="Select the Gemini model for composition.">Gemini Model</FieldLabel>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { id: "gemini-2.5-pro", label: "2.5 Pro", desc: "Best reasoning, 1M context" },
+                    { id: "gemini-2.5-flash", label: "2.5 Flash", desc: "Fast + cheap, 1M context" },
+                    { id: "gemini-2.5-flash-lite", label: "2.5 Flash-Lite", desc: "Cost-optimized, high throughput" },
+                    { id: "gemini-3.1-pro-preview", label: "3.1 Pro Preview", desc: "Latest flagship (preview)" },
+                    { id: "gemini-3-flash-preview", label: "3 Flash Preview", desc: "Pro-level at Flash speed" },
+                  ].map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => handleChange({ geminiModel: m.id })}
+                      className={cn(
+                        "flex flex-col items-start rounded-lg border px-3 py-1.5 text-left transition-colors",
+                        settings.geminiModel === m.id
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-input text-muted-foreground hover:border-foreground/30"
+                      )}
+                    >
+                      <span className="text-xs font-medium">{m.label}</span>
+                      <span className="text-[10px] opacity-60">{m.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
 
-          {/* Temperature */}
+          {/* ---- OpenRouter ---- */}
+          {settings.llmProvider === "openrouter" && (
+            <>
+              <div className="space-y-1.5">
+                <FieldLabel hint="Get yours at openrouter.ai/keys">OpenRouter API Key</FieldLabel>
+                <input
+                  type="password"
+                  value={settings.openrouterApiKey}
+                  onChange={(e) => handleChange({ openrouterApiKey: e.target.value })}
+                  placeholder="sk-or-..."
+                  className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <FieldLabel hint="Type any OpenRouter model ID, or click a popular pick below.">OpenRouter Model</FieldLabel>
+                <input
+                  type="text"
+                  value={settings.openrouterModel}
+                  onChange={(e) => handleChange({ openrouterModel: e.target.value })}
+                  placeholder="anthropic/claude-sonnet-4.5"
+                  className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <FieldLabel hint="Quick-select from popular models.">Popular Models</FieldLabel>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { id: "anthropic/claude-sonnet-4.5", label: "Claude Sonnet 4.5" },
+                    { id: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+                    { id: "openai/gpt-4.1", label: "GPT-4.1" },
+                    { id: "deepseek/deepseek-r1", label: "DeepSeek R1" },
+                    { id: "meta-llama/llama-3.3-70b", label: "Llama 3.3 70B" },
+                    { id: "qwen/qwen3-235b-a22b", label: "Qwen3 235B" },
+                  ].map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => handleChange({ openrouterModel: m.id })}
+                      className={cn(
+                        "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+                        settings.openrouterModel === m.id
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-input text-muted-foreground hover:border-foreground/30"
+                      )}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* ---- LM Studio ---- */}
+          {settings.llmProvider === "lm-studio" && (
+            <>
+              <div className="space-y-1.5">
+                <FieldLabel hint="The OpenAI-compatible API endpoint of your LM Studio server.">LM Studio URL</FieldLabel>
+                <input
+                  type="text"
+                  value={settings.lmStudioUrl}
+                  onChange={(e) => handleChange({ lmStudioUrl: e.target.value })}
+                  placeholder="http://localhost:1234/v1"
+                  className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+
+              <LMStudioModelSelector
+                url={settings.lmStudioUrl}
+                currentModel={settings.lmStudioModel}
+                onChange={(model) => handleChange({ lmStudioModel: model })}
+              />
+            </>
+          )}
+
+          {/* ---- Shared: Temperature ---- */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <FieldLabel>Temperature</FieldLabel>
+              <FieldLabel hint="Lower = more consistent patterns. Higher = more creative/random.">Temperature</FieldLabel>
               <span className="text-xs tabular-nums text-muted-foreground">
                 {settings.temperature.toFixed(2)}
               </span>
@@ -267,9 +464,9 @@ export default function SettingsPage() {
             />
           </div>
 
-          {/* Max tokens */}
+          {/* ---- Shared: Max tokens ---- */}
           <div className="space-y-1.5">
-            <FieldLabel>Max Tokens</FieldLabel>
+            <FieldLabel hint="Maximum response length. 8192 is enough for full multi-track patterns.">Max Tokens</FieldLabel>
             <input
               type="number"
               value={settings.maxTokens}
@@ -476,18 +673,27 @@ export default function SettingsPage() {
 
           {/* Stem model */}
           <div className="space-y-1.5">
-            <FieldLabel>Default Stem Model</FieldLabel>
-            <div className="flex gap-2">
-              {(["htdemucs", "htdemucs_6s", "mdx_extra"] as StemModel[]).map(
-                (m) => (
-                  <ToggleButton
-                    key={m}
-                    active={settings.defaultStemModel === m}
-                    label={m}
-                    onClick={() => handleChange({ defaultStemModel: m })}
-                  />
-                )
-              )}
+            <FieldLabel hint="The Demucs model used for separating audio into stems (drums, bass, vocals, etc.)">Default Stem Model</FieldLabel>
+            <div className="flex flex-wrap gap-2">
+              {([
+                { id: "htdemucs", label: "HTDemucs", desc: "4 stems, fastest" },
+                { id: "htdemucs_6s", label: "HTDemucs 6s", desc: "6 stems (+ guitar, piano)" },
+                { id: "htdemucs_ft", label: "HTDemucs FT", desc: "4 stems, best quality (4x slower)" },
+              ] as Array<{ id: StemModel; label: string; desc: string }>).map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => handleChange({ defaultStemModel: m.id })}
+                  className={cn(
+                    "flex flex-col items-start rounded-lg border px-3 py-1.5 text-left transition-colors",
+                    settings.defaultStemModel === m.id
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-input text-muted-foreground hover:border-foreground/30"
+                  )}
+                >
+                  <span className="text-xs font-medium">{m.label}</span>
+                  <span className="text-[10px] opacity-60">{m.desc}</span>
+                </button>
+              ))}
             </div>
           </div>
 

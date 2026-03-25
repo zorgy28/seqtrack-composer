@@ -7,10 +7,13 @@
 import { OneEuroFilter } from "./one-euro-filter";
 import type {
   CCOutput,
+  FaceAxes,
+  GestureAxis,
   GestureMapping,
   TrackingFrame,
   HandState,
 } from "./types";
+import { FACE_AXIS_KEYS } from "./types";
 
 // ─── Core Mapping ──────────────────────────────────────────────
 
@@ -70,6 +73,14 @@ export function applyDeadZone(
 // ─── Frame Processing ──────────────────────────────────────────
 
 /**
+ * Check whether a gesture axis belongs to the face (blendshape) axes
+ * rather than the hand gesture axes.
+ */
+function isFaceAxis(axis: GestureAxis): boolean {
+  return (FACE_AXIS_KEYS as readonly string[]).includes(axis);
+}
+
+/**
  * Find the matching hand for a mapping's handedness preference.
  *
  * - "Left" / "Right": exact match
@@ -116,12 +127,16 @@ export function processFrame(
   for (const mapping of mappings) {
     if (!mapping.enabled) continue;
 
-    // Find the correct hand
-    const hand = findHand(frame.hands, mapping.hand);
-    if (!hand) continue;
-
-    // Read raw gesture axis value
-    const rawValue = hand.axes[mapping.axis];
+    // Read raw gesture axis value — face axes come from face data, hand axes from hand data
+    let rawValue: number;
+    if (isFaceAxis(mapping.axis) && frame.face) {
+      rawValue = frame.face[mapping.axis as keyof FaceAxes];
+    } else {
+      // Find the correct hand
+      const hand = findHand(frame.hands, mapping.hand);
+      if (!hand) continue;
+      rawValue = hand.axes[mapping.axis as keyof typeof hand.axes];
+    }
 
     // Get or create filter for this mapping
     let filter = filters.get(mapping.id);
