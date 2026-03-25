@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { cn } from "@/lib/utils";
 
 // ── Preset Data ──────────────────────────────────────────────────
@@ -44,7 +45,7 @@ interface ComposePresetsProps {
 
 // ── Component ────────────────────────────────────────────────────
 
-export function ComposePresets({ onSelect, disabled = false }: ComposePresetsProps) {
+export const ComposePresets = memo(function ComposePresets({ onSelect, disabled = false }: ComposePresetsProps) {
   return (
     <div className="flex flex-col gap-2">
       {Object.entries(PRESET_CATEGORIES).map(([category, presets]) => (
@@ -73,4 +74,4 @@ export function ComposePresets({ onSelect, disabled = false }: ComposePresetsPro
       ))}
     </div>
   );
-}
+});

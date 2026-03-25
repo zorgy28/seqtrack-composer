@@ -1,3 +1,5 @@
+export const maxDuration = 30;
+
 /**
  * Proxy endpoint to list available LM Studio models.
  * Returns { models: [{ id: string }], reachable: boolean }

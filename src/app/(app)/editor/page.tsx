@@ -7,7 +7,6 @@ import { useProject } from "@/providers/project-provider";
 import { applyDrumPatternToProject, createEmptyProject } from "@/lib/midi/pattern-generators";
 import { DRUM_STYLES, ALL_CHANNELS } from "@/lib/midi/constants";
 import type { DrumStyle, SeqtrackChannel } from "@/lib/midi/types";
-import { downloadMidi } from "@/lib/midi/midi-export";
 import { useMidiConnection } from "@/hooks/use-midi-connection";
 import { Button } from "@/components/ui/button";
 import { EnhanceDialog } from "@/components/enhance/enhance-dialog";
@@ -136,7 +135,10 @@ export default function EditorPage() {
           variant="outline"
           size="sm"
           className="h-7 text-xs"
-          onClick={() => downloadMidi(project)}
+          onClick={async () => {
+            const { downloadMidi } = await import("@/lib/midi/midi-export");
+            downloadMidi(project);
+          }}
         >
           Export .mid
         </Button>

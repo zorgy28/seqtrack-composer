@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useMemo, memo } from "react";
+import { useState, useRef, useMemo, useCallback, memo } from "react";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import { useProject } from "@/providers/project-provider";
 import { useSoundControl } from "@/hooks/use-sound-control";
@@ -30,7 +30,7 @@ const TRACK_BG_ACTIVE: Record<string, string> = {
 
 // ─── StepCell ──────────────────────────────────────────────────
 
-function StepCell({
+const StepCell = memo(function StepCell({
   active,
   velocity,
   colorClass,
@@ -65,11 +65,11 @@ function StepCell({
       title={tooltip ?? (active ? `vel: ${velocity}` : undefined)}
     />
   );
-}
+});
 
 // ─── TrackHeader ───────────────────────────────────────────────
 
-function TrackHeader({
+const TrackHeader = memo(function TrackHeader({
   channel,
 }: {
   channel: SeqtrackChannel;
@@ -91,25 +91,25 @@ function TrackHeader({
     return presets[0]?.name ?? "—";
   }, [currentPreset, channel]);
 
-  const toggleMute = () => {
+  const toggleMute = useCallback(() => {
     const updatedTrack = { ...track, muted: !track.muted };
     const updatedTracks = { ...project.tracks, [channel]: updatedTrack };
     setProject({ ...project, tracks: updatedTracks });
-  };
+  }, [track, project, channel, setProject]);
 
-  const setVolume = (vol: number) => {
+  const setVolume = useCallback((vol: number) => {
     const updatedTrack = { ...track, volume: vol };
     const updatedTracks = { ...project.tracks, [channel]: updatedTrack };
     setProject({ ...project, tracks: updatedTracks });
-  };
+  }, [track, project, channel, setProject]);
 
-  const handleNameClick = () => {
+  const handleNameClick = useCallback(() => {
     if (selectedChannel === channel) {
-      setPickerOpen(!pickerOpen);
+      setPickerOpen((prev) => !prev);
     } else {
       setSelectedChannel(channel);
     }
-  };
+  }, [selectedChannel, channel, setSelectedChannel]);
 
   return (
     <div className="flex items-center gap-0 relative">
@@ -180,7 +180,7 @@ function TrackHeader({
       )}
     </div>
   );
-}
+});
 
 // ─── OctaveSelector ────────────────────────────────────────────
 
@@ -374,10 +374,10 @@ const DrumTrackRow = memo(function DrumTrackRow({
     return map;
   }, [pattern.notes]);
 
-  const handleToggle = (step: number) => {
+  const handleToggle = useCallback((step: number) => {
     const updated = toggleNoteInPattern(pattern, step, defaultPitch);
     updatePattern(channel, track.activePattern, updated);
-  };
+  }, [pattern, channel, track.activePattern, updatePattern]);
 
   return (
     <div
@@ -489,10 +489,10 @@ const MelodicTrackRow = memo(function MelodicTrackRow({
     return map;
   }, [pattern.notes, info.name]);
 
-  const handleToggle = (step: number, pitch: number) => {
+  const handleToggle = useCallback((step: number, pitch: number) => {
     const updated = toggleNoteInPattern(pattern, step, pitch);
     updatePattern(channel, track.activePattern, updated);
-  };
+  }, [pattern, channel, track.activePattern, updatePattern]);
 
   // Collapsed view: summary row showing "any note at step" with note name tooltips
   if (!isExpanded) {

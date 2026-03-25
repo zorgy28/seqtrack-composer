@@ -74,13 +74,12 @@ function OpenRouterBrowser({
 }) {
   const [models, setModels] = useState<ORModel[]>([]);
   const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
     const params = apiKey ? `?key=${encodeURIComponent(apiKey)}` : "";
     fetch(`/api/openrouter-models${params}`)
       .then((r) => r.ok ? r.json() : { models: [] })

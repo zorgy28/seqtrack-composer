@@ -1,5 +1,5 @@
 import type { SoundPreset, SoundCategory, SoundEngine, SeqtrackChannel } from "./types";
-import { loadScannedPresets, saveScannedPresets, generateAllPresets } from "./sound-scanner";
+import { loadScannedPresets } from "./sound-scanner";
 import { COMPLETE_PRESETS } from "./sound-data-complete";
 
 /**

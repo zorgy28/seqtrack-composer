@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, memo } from "react";
 import {
   Volume2,
   VolumeX,
@@ -29,7 +29,7 @@ interface AudioMonitorProps {
 // Waveform Canvas — oscilloscope visualization
 // ---------------------------------------------------------------------------
 
-function WaveformCanvas({
+const WaveformCanvas = memo(function WaveformCanvas({
   getAnalyser,
 }: {
   getAnalyser: () => AnalyserNode | null;
@@ -139,13 +139,13 @@ function WaveformCanvas({
       style={{ height: 60 }}
     />
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // Spectrum Canvas — frequency bar visualization (log-scale x-axis)
 // ---------------------------------------------------------------------------
 
-function SpectrumCanvas({
+const SpectrumCanvas = memo(function SpectrumCanvas({
   getAnalyser,
 }: {
   getAnalyser: () => AnalyserNode | null;
@@ -271,13 +271,13 @@ function SpectrumCanvas({
       style={{ height: 60 }}
     />
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // Level Meter — horizontal bar with green/yellow/red gradient and dB readout
 // ---------------------------------------------------------------------------
 
-function LevelMeter({ level }: { level: number }) {
+const LevelMeter = memo(function LevelMeter({ level }: { level: number }) {
   // Convert to dB for display
   const db = level > 0 ? 20 * Math.log10(level) : -Infinity;
   const dbLabel = db === -Infinity ? "-inf" : `${db.toFixed(0)} dB`;
@@ -307,7 +307,7 @@ function LevelMeter({ level }: { level: number }) {
       </span>
     </div>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // AudioMonitor — collapsible panel

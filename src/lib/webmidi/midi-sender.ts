@@ -224,7 +224,6 @@ export function playPatternLoopedWithCursor(
   if (!output) return { cancel: () => {}, seek: () => {} };
 
   const sMs = stepDurationMs(bpm);
-  const totalSteps = Math.max(16, ...tracks.map((t) => t.pattern.bars * STEPS_PER_BAR));
 
   let currentStep = 0;
   let cancelled = false;

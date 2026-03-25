@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, memo } from "react";
 import { useProject } from "@/providers/project-provider";
 import { useSoundControl } from "@/hooks/use-sound-control";
 import { useMidiConnection } from "@/hooks/use-midi-connection";
@@ -32,6 +32,54 @@ const ENGINE_TABS: Array<{ value: SoundEngine; label: string }> = [
 ];
 
 const VISIBLE_LIMIT = 100;
+
+// Memoized preset button to avoid re-rendering all 100 buttons on selection change
+const PresetButton = memo(function PresetButton({
+  preset,
+  isActive,
+  isLastPlayed,
+  isConnected,
+  onPreview,
+}: {
+  preset: SoundPreset;
+  isActive: boolean;
+  isLastPlayed: boolean;
+  isConnected: boolean;
+  onPreview: (preset: SoundPreset) => void;
+}) {
+  return (
+    <button
+      onClick={() => onPreview(preset)}
+      disabled={!isConnected}
+      className={cn(
+        "text-left px-2 py-1.5 rounded text-xs transition-colors relative",
+        isActive
+          ? "bg-primary text-primary-foreground ring-2 ring-primary/50"
+          : "hover:bg-accent/50",
+        !isConnected && "opacity-50 cursor-not-allowed",
+      )}
+    >
+      <span className="font-medium block truncate pr-4">{preset.name}</span>
+      <span className={cn(
+        "text-[10px]",
+        isActive
+          ? "text-primary-foreground/70"
+          : "text-muted-foreground",
+      )}>
+        {preset.category}
+      </span>
+      {isLastPlayed && (
+        <span className="absolute top-1.5 right-1.5 text-[10px]" title="Last played">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+          </svg>
+        </span>
+      )}
+    </button>
+  );
+});
 
 export default function SoundsPage() {
   const { selectedChannel, setSelectedChannel } = useProject();
@@ -89,14 +137,6 @@ export default function SoundsPage() {
       sendNoteToDevice(selectedChannel, 60, 100, 300);
     }, 50);
   }, [device, selectPreset, selectedChannel, sendNoteToDevice]);
-
-  // Load full library (generated, no device needed)
-  const handleLoadFullLibrary = useCallback(() => {
-    const full = getAllPresets();
-    invalidatePresetCache();
-    setScannedPresets(full);
-    setVisibleCount(VISIBLE_LIMIT);
-  }, []);
 
   // Scan handler — incremental: only scans slots that don't have real names yet
   const handleScan = useCallback(async () => {
@@ -169,6 +209,9 @@ export default function SoundsPage() {
     engine === "dx" ? [10] :
     engine === "sampler" ? [11] : [];
 
+  // Memoize built-in preset count to avoid calling getAllPresets() during render
+  const builtInPresetCount = useMemo(() => getAllPresets().length, []);
+
   const hasScannedData = scannedPresets !== null && scannedPresets.length > 100;
   const scanPercent = scanProgress.total > 0
     ? Math.round((scanProgress.current / scanProgress.total) * 100)
@@ -236,7 +279,7 @@ export default function SoundsPage() {
                 <span className="text-[10px] text-muted-foreground">
                   {hasScannedData
                     ? `${scannedPresets!.length} presets loaded`
-                    : `${getAllPresets().length} built-in presets`}
+                    : `${builtInPresetCount} built-in presets`}
                 </span>
                 {hasScannedData && (
                   <Badge variant="secondary" className="text-[9px] h-4">
@@ -376,38 +419,14 @@ export default function SoundsPage() {
               <>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 max-h-[400px] overflow-auto">
                   {visiblePresets.map((preset) => (
-                    <button
+                    <PresetButton
                       key={preset.id}
-                      onClick={() => handlePreviewSound(preset)}
-                      disabled={!isConnected}
-                      className={cn(
-                        "text-left px-2 py-1.5 rounded text-xs transition-colors relative",
-                        trackSound.preset?.id === preset.id
-                          ? "bg-primary text-primary-foreground ring-2 ring-primary/50"
-                          : "hover:bg-accent/50",
-                        !isConnected && "opacity-50 cursor-not-allowed",
-                      )}
-                    >
-                      <span className="font-medium block truncate pr-4">{preset.name}</span>
-                      <span className={cn(
-                        "text-[10px]",
-                        trackSound.preset?.id === preset.id
-                          ? "text-primary-foreground/70"
-                          : "text-muted-foreground",
-                      )}>
-                        {preset.category}
-                      </span>
-                      {/* Playing indicator */}
-                      {lastPlayedId === preset.id && (
-                        <span className="absolute top-1.5 right-1.5 text-[10px]" title="Last played">
-                          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                            <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                            <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                          </svg>
-                        </span>
-                      )}
-                    </button>
+                      preset={preset}
+                      isActive={trackSound.preset?.id === preset.id}
+                      isLastPlayed={lastPlayedId === preset.id}
+                      isConnected={isConnected}
+                      onPreview={handlePreviewSound}
+                    />
                   ))}
                 </div>
                 {/* Show More button */}

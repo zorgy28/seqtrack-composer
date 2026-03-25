@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useProject } from "@/providers/project-provider";
 import { saveProject, listProjects, loadProject, deleteProject } from "@/lib/midi/project-store";
 import { createEmptyProject } from "@/lib/midi/pattern-generators";
-import { downloadMidi } from "@/lib/midi/midi-export";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -33,7 +32,8 @@ export default function ProjectsPage() {
     setProject(createEmptyProject());
   };
 
-  const handleExportMidi = () => {
+  const handleExportMidi = async () => {
+    const { downloadMidi } = await import("@/lib/midi/midi-export");
     downloadMidi(project);
   };
 

@@ -311,6 +311,7 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<AppSettings>(() => getSettings());
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveCounterRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function handleChange(partial: Partial<AppSettings>) {
@@ -318,7 +319,8 @@ export default function SettingsPage() {
     setSettings(next);
     // Show "Saved" indicator for 2 seconds
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    setSavedAt(Date.now());
+    saveCounterRef.current += 1;
+    setSavedAt(saveCounterRef.current);
     saveTimerRef.current = setTimeout(() => setSavedAt(null), 2000);
   }
 

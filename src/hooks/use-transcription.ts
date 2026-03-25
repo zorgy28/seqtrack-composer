@@ -341,6 +341,7 @@ export function useTranscription(): UseTranscriptionReturn {
     );
   }, []);
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const applyOption = useCallback((_index: number) => {
     // The parent component (TranscribeDialog) reads options[index]
     // and calls ProjectProvider.loadTranscription(option) to load

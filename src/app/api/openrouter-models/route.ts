@@ -1,3 +1,5 @@
+export const maxDuration = 30;
+
 /**
  * Proxy endpoint to list available OpenRouter models.
  * Uses OPENROUTER_API_KEY from env, or falls back to the key

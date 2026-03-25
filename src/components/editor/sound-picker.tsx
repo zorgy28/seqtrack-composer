@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Sparkles, Star, Search, X } from "lucide-react";
-import type { SeqtrackChannel, SoundPreset, SoundCategory, SoundEngine } from "@/lib/midi/types";
+import type { SeqtrackChannel, SoundPreset, SoundEngine } from "@/lib/midi/types";
 import { getPresetsForChannel, getCategoriesForEngine } from "@/lib/midi/sound-library";
 import { useSoundControl } from "@/hooks/use-sound-control";
 import { useProject } from "@/providers/project-provider";

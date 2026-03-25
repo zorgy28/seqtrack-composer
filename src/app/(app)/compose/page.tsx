@@ -207,6 +207,19 @@ export default function ComposePage() {
     [project, setProject],
   );
 
+  // ── Stable callbacks for child components ───────────────────────
+
+  const handleModelChange = useCallback((p: string, m: string) => {
+    setModelProvider(p);
+    setModelId(m);
+  }, []);
+
+  const handlePresetSelect = useCallback((p: string) => {
+    setPrompt((prev) => prev.trim() ? `${prev.trim()}, ${p}` : p);
+  }, []);
+
+  const isLoading = stage === "loading";
+
   // ── Render ────────────────────────────────────────────────────
 
   return (
@@ -226,19 +239,14 @@ export default function ComposePage() {
           onSwingChange={setSwing}
           modelProvider={modelProvider}
           modelId={modelId}
-          onModelChange={(p, m) => {
-            setModelProvider(p);
-            setModelId(m);
-          }}
-          disabled={stage === "loading"}
+          onModelChange={handleModelChange}
+          disabled={isLoading}
         />
 
         {/* Presets */}
         <ComposePresets
-          onSelect={(p) => {
-            setPrompt((prev) => prev.trim() ? `${prev.trim()}, ${p}` : p);
-          }}
-          disabled={stage === "loading"}
+          onSelect={handlePresetSelect}
+          disabled={isLoading}
         />
 
         {/* Prompt input */}
@@ -251,14 +259,14 @@ export default function ComposePage() {
             onKeyDown={(e) => {
               if (e.metaKey && e.key === "Enter") handleGenerate();
             }}
-            disabled={stage === "loading"}
+            disabled={isLoading}
           />
           <div className="flex items-center gap-2">
             <Button
               onClick={() => handleGenerate()}
-              disabled={stage === "loading" || !prompt.trim()}
+              disabled={isLoading || !prompt.trim()}
             >
-              {stage === "loading" ? (
+              {isLoading ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Generating...
@@ -273,7 +281,7 @@ export default function ComposePage() {
             <Button
               variant="outline"
               onClick={handleEnhancePrompt}
-              disabled={isEnhancing || stage === "loading" || !prompt.trim()}
+              disabled={isEnhancing || isLoading || !prompt.trim()}
               title="Expand your prompt into a detailed production description"
             >
               {isEnhancing ? (

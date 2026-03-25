@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { cn } from "@/lib/utils";
 import { NOTE_NAMES, SCALE_NAMES, BPM_MIN, BPM_MAX } from "@/lib/midi/constants";
 import { ModelSelector, type ModelSelection, type LLMProvider } from "./model-selector";
@@ -39,7 +40,7 @@ function formatScaleName(name: string): string {
 
 // ── Component ────────────────────────────────────────────────────
 
-export function ComposeParams({
+export const ComposeParams = memo(function ComposeParams({
   bars,
   onBarsChange,
   bpm,
@@ -180,4 +181,4 @@ export function ComposeParams({
       </div>
     </div>
   );
-}
+});

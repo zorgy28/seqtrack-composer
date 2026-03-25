@@ -1,5 +1,7 @@
 import { pollMLStatus } from "@/lib/transcription/ml-client";
 
+export const maxDuration = 30;
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ jobId: string }> },
