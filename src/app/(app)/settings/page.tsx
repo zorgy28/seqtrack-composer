@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Card,
   CardHeader,
@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { Check, RefreshCw } from "lucide-react";
 import { NOTE_NAMES, SCALE_NAMES, BPM_MIN, BPM_MAX } from "@/lib/midi/constants";
 import {
   getSettings,
@@ -147,17 +148,181 @@ function LMStudioModelSelector({
 }
 
 // ---------------------------------------------------------------------------
+// OpenRouter Model Browser
+// ---------------------------------------------------------------------------
+
+interface ORModel { id: string; name: string; contextLength: number; isFree: boolean; }
+
+function OpenRouterModelSelector({
+  apiKey,
+  currentModel,
+  onChange,
+}: {
+  apiKey: string;
+  currentModel: string;
+  onChange: (model: string) => void;
+}) {
+  const [models, setModels] = useState<ORModel[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [query, setQuery] = useState("");
+  const [fetched, setFetched] = useState(false);
+
+  const fetchModels = useCallback(async (key: string) => {
+    if (!key) return;
+    setLoading(true);
+    setFetched(false);
+    try {
+      const params = key !== (process.env.NEXT_PUBLIC_OPENROUTER_API_KEY ?? "")
+        ? `?key=${encodeURIComponent(key)}`
+        : "";
+      const res = await fetch(`/api/openrouter-models${params}`);
+      if (res.ok) {
+        const data = await res.json();
+        setModels(data.models ?? []);
+        setFetched(true);
+      }
+    } catch { /* ignore */ }
+    finally { setLoading(false); }
+  }, []);
+
+  // Auto-fetch when key is present (or use env key)
+  useEffect(() => {
+    fetchModels(apiKey);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const filtered = query
+    ? models.filter((m) => m.id.toLowerCase().includes(query.toLowerCase()) || m.name.toLowerCase().includes(query.toLowerCase()))
+    : models;
+
+  const POPULAR = [
+    "anthropic/claude-sonnet-4.5",
+    "anthropic/claude-opus-4-6",
+    "google/gemini-2.5-pro",
+    "openai/gpt-4.1",
+    "deepseek/deepseek-r1",
+    "meta-llama/llama-3.3-70b-instruct",
+    "qwen/qwen3-235b-a22b",
+    "mistralai/mistral-large",
+    "x-ai/grok-3",
+    "openai/gpt-5.4",
+  ];
+
+  return (
+    <div className="space-y-3">
+      {/* Search + refresh */}
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={fetched ? `Search ${models.length} models…` : "Search models…"}
+          className="flex-1 rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => fetchModels(apiKey)}
+          disabled={loading || !apiKey}
+          title="Refresh model list"
+        >
+          <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
+        </Button>
+      </div>
+
+      {/* Popular picks */}
+      {!query && (
+        <div className="space-y-1">
+          <p className="text-[10px] text-muted-foreground/60 font-medium uppercase tracking-wide">Popular</p>
+          <div className="flex flex-wrap gap-1.5">
+            {POPULAR.map((id) => (
+              <button
+                key={id}
+                onClick={() => onChange(id)}
+                className={cn(
+                  "rounded-md border px-2.5 py-1 text-xs transition-colors",
+                  currentModel === id
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-input text-muted-foreground hover:border-foreground/30 hover:text-foreground"
+                )}
+              >
+                {id.split("/")[1]}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Live model list */}
+      {fetched && filtered.length > 0 && (
+        <div className="space-y-1">
+          {query && (
+            <p className="text-[10px] text-muted-foreground/60">
+              {filtered.length} result{filtered.length !== 1 ? "s" : ""}
+            </p>
+          )}
+          <div className="max-h-48 overflow-y-auto rounded-lg border border-input space-y-px">
+            {filtered.slice(0, 100).map((m) => (
+              <button
+                key={m.id}
+                onClick={() => onChange(m.id)}
+                className={cn(
+                  "w-full flex items-center justify-between px-3 py-1.5 text-xs transition-colors text-left",
+                  currentModel === m.id
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                )}
+              >
+                <span className="font-mono truncate">{m.id}</span>
+                <span className="shrink-0 ml-2 text-[10px] opacity-50">
+                  {m.isFree ? "free" : m.contextLength > 0 ? `${Math.round(m.contextLength / 1000)}k` : ""}
+                </span>
+              </button>
+            ))}
+            {filtered.length > 100 && (
+              <p className="px-3 py-1.5 text-[10px] text-muted-foreground/60">
+                {filtered.length - 100} more — refine your search
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Manual fallback */}
+      <div className="space-y-1">
+        <p className="text-[10px] text-muted-foreground/60">Or type any model ID</p>
+        <input
+          type="text"
+          value={currentModel}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="provider/model-name"
+          className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+        />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<AppSettings>(() => getSettings());
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function handleChange(partial: Partial<AppSettings>) {
     const next = updateSettings(partial);
     setSettings(next);
+    // Show "Saved" indicator for 2 seconds
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    setSavedAt(Date.now());
+    saveTimerRef.current = setTimeout(() => setSavedAt(null), 2000);
   }
+
+  useEffect(() => () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); }, []);
 
   // ---- Storage helpers ----
   const storage = getStorageUsage();
@@ -219,7 +384,18 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-3xl mx-auto p-4 space-y-6">
-      <h1 className="text-xl font-bold tracking-tight">Settings</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold tracking-tight">Settings</h1>
+        <span
+          className={cn(
+            "flex items-center gap-1.5 text-xs text-muted-foreground transition-opacity duration-300",
+            savedAt ? "opacity-100" : "opacity-0"
+          )}
+        >
+          <Check className="size-3 text-green-500" />
+          Saved
+        </span>
+      </div>
 
       {/* ----------------------------------------------------------------- */}
       {/* 1. Audio & MIDI                                                    */}
@@ -374,50 +550,22 @@ export default function SettingsPage() {
           {settings.llmProvider === "openrouter" && (
             <>
               <div className="space-y-1.5">
-                <FieldLabel hint="Get yours at openrouter.ai/keys">OpenRouter API Key</FieldLabel>
+                <FieldLabel hint="Get yours at openrouter.ai/keys. The key from .env.local is used by default if this is empty.">OpenRouter API Key</FieldLabel>
                 <input
                   type="password"
                   value={settings.openrouterApiKey}
                   onChange={(e) => handleChange({ openrouterApiKey: e.target.value })}
-                  placeholder="sk-or-..."
+                  placeholder="sk-or-… (leave blank to use .env.local key)"
                   className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 />
               </div>
               <div className="space-y-1.5">
-                <FieldLabel hint="Type any OpenRouter model ID, or click a popular pick below.">OpenRouter Model</FieldLabel>
-                <input
-                  type="text"
-                  value={settings.openrouterModel}
-                  onChange={(e) => handleChange({ openrouterModel: e.target.value })}
-                  placeholder="anthropic/claude-sonnet-4.5"
-                  className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                <FieldLabel hint="Search all available models or pick from popular choices. Model list is fetched live from OpenRouter.">OpenRouter Model</FieldLabel>
+                <OpenRouterModelSelector
+                  apiKey={settings.openrouterApiKey}
+                  currentModel={settings.openrouterModel}
+                  onChange={(model) => handleChange({ openrouterModel: model })}
                 />
-              </div>
-              <div className="space-y-1.5">
-                <FieldLabel hint="Quick-select from popular models.">Popular Models</FieldLabel>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    { id: "anthropic/claude-sonnet-4.5", label: "Claude Sonnet 4.5" },
-                    { id: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro" },
-                    { id: "openai/gpt-4.1", label: "GPT-4.1" },
-                    { id: "deepseek/deepseek-r1", label: "DeepSeek R1" },
-                    { id: "meta-llama/llama-3.3-70b", label: "Llama 3.3 70B" },
-                    { id: "qwen/qwen3-235b-a22b", label: "Qwen3 235B" },
-                  ].map((m) => (
-                    <button
-                      key={m.id}
-                      onClick={() => handleChange({ openrouterModel: m.id })}
-                      className={cn(
-                        "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
-                        settings.openrouterModel === m.id
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-input text-muted-foreground hover:border-foreground/30"
-                      )}
-                    >
-                      {m.label}
-                    </button>
-                  ))}
-                </div>
               </div>
             </>
           )}

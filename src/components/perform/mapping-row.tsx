@@ -1,6 +1,7 @@
 "use client";
 
-import { X } from "lucide-react";
+import { GripVertical, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -16,11 +17,18 @@ import { ALL_CHANNELS, SEQTRAK_TRACKS } from "@/lib/midi/constants";
 import { getCCsForChannel } from "@/lib/midi/cc-map";
 import type { SeqtrackChannel } from "@/lib/midi/types";
 
+const GROUPS = ["Sound", "Effects", "Control", "Master FX", "DX", "Drums", "Synths", "Custom"];
+
 interface MappingRowProps {
   mapping: GestureMapping;
   currentOutput: CCOutput | undefined;
   onUpdate: (updates: Partial<GestureMapping>) => void;
   onDelete: () => void;
+  index: number;
+  onDragStart: (index: number) => void;
+  onDragOver: (index: number) => void;
+  onDrop: () => void;
+  isDragTarget: boolean;
 }
 
 
@@ -35,12 +43,34 @@ export function MappingRow({
   currentOutput,
   onUpdate,
   onDelete,
+  index,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  isDragTarget,
 }: MappingRowProps) {
   const channelCCs = getCCsForChannel(mapping.channel);
   const currentCCValue = currentOutput?.ccValue;
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 py-1.5 px-2 rounded-md bg-muted/30 text-xs">
+    <div
+      draggable
+      onDragStart={() => onDragStart(index)}
+      onDragOver={(e) => { e.preventDefault(); onDragOver(index); }}
+      onDrop={onDrop}
+      className={cn(
+        "flex flex-wrap items-center gap-1.5 py-1.5 px-2 rounded-md bg-muted/30 text-xs transition-all",
+        isDragTarget && "border-t-2 border-primary",
+      )}
+    >
+      {/* Drag handle */}
+      <div
+        className="cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <GripVertical className="h-4 w-4" />
+      </div>
+
       {/* Gesture axis */}
       <Select
         value={mapping.axis}
@@ -118,7 +148,7 @@ export function MappingRow({
         <SelectContent>
           {channelCCs.map((param) => (
             <SelectItem key={param.cc} value={String(param.cc)}>
-              CC{param.cc} {param.shortName}
+              CC{param.cc} · {param.name}
             </SelectItem>
           ))}
         </SelectContent>
@@ -158,6 +188,17 @@ export function MappingRow({
       >
         <X className="size-3" />
       </Button>
+
+      {/* Group selector */}
+      <select
+        value={mapping.group ?? ""}
+        onChange={(e) => onUpdate({ group: e.target.value || undefined })}
+        className="h-6 rounded border border-border/50 bg-transparent px-1 text-[10px] text-muted-foreground"
+        title="Assign to group"
+      >
+        <option value="">No group</option>
+        {GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
+      </select>
     </div>
   );
 }

@@ -1,7 +1,9 @@
 "use client";
 
-import { Plus } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ChevronRight, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardHeader,
@@ -23,6 +25,7 @@ interface MappingPanelProps {
   onAddMapping: (mapping: GestureMapping) => void;
   onRemoveMapping: (id: string) => void;
   onLoadPreset: (preset: MappingPreset) => void;
+  onReorderMappings: (reordered: GestureMapping[]) => void;
   currentPresetId?: string;
 }
 
@@ -48,8 +51,48 @@ export function MappingPanel({
   onAddMapping,
   onRemoveMapping,
   onLoadPreset,
+  onReorderMappings,
   currentPresetId,
 }: MappingPanelProps) {
+  // ── Drag-and-drop state ──────────────────────────────────────
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dropTarget, setDropTarget] = useState<number | null>(null);
+
+  const handleDrop = () => {
+    if (dragIndex === null || dropTarget === null || dragIndex === dropTarget) {
+      setDragIndex(null);
+      setDropTarget(null);
+      return;
+    }
+    const reordered = [...mappings];
+    const [moved] = reordered.splice(dragIndex, 1);
+    reordered.splice(dropTarget, 0, moved);
+    onReorderMappings(reordered);
+    setDragIndex(null);
+    setDropTarget(null);
+  };
+
+  // ── Grouped rendering helpers ────────────────────────────────
+  const grouped = useMemo(() => {
+    const groups: Record<string, GestureMapping[]> = {};
+    const ungrouped: GestureMapping[] = [];
+
+    for (const m of mappings) {
+      if (m.group) {
+        if (!groups[m.group]) groups[m.group] = [];
+        groups[m.group].push(m);
+      } else {
+        ungrouped.push(m);
+      }
+    }
+
+    return { groups, ungrouped };
+  }, [mappings]);
+
+  // Get the flat index of a mapping in the original mappings array
+  const flatIndex = (mapping: GestureMapping) =>
+    mappings.findIndex((m) => m.id === mapping.id);
+
   return (
     <Card size="sm">
       <CardHeader>
@@ -70,10 +113,46 @@ export function MappingPanel({
               No mappings configured. Load a preset or add one manually.
             </div>
           )}
-          {mappings.map((mapping) => {
+
+          {/* Grouped sections */}
+          {Object.entries(grouped.groups).map(([groupName, groupMappings]) => (
+            <div key={groupName} className="space-y-1">
+              <div className="flex items-center gap-2 px-2 py-1">
+                <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                <span className="seqtrak-section-label text-primary">{groupName}</span>
+                <Badge variant="secondary" className="text-[9px] h-4">{groupMappings.length}</Badge>
+              </div>
+              <div className="pl-2 space-y-1">
+                {groupMappings.map((mapping) => {
+                  const output = ccOutputs.find(
+                    (o) => o.mapping.id === mapping.id,
+                  );
+                  const idx = flatIndex(mapping);
+                  return (
+                    <MappingRow
+                      key={mapping.id}
+                      mapping={mapping}
+                      currentOutput={output}
+                      onUpdate={(updates) => onUpdateMapping(mapping.id, updates)}
+                      onDelete={() => onRemoveMapping(mapping.id)}
+                      index={idx}
+                      onDragStart={setDragIndex}
+                      onDragOver={setDropTarget}
+                      onDrop={handleDrop}
+                      isDragTarget={dropTarget === idx}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+
+          {/* Ungrouped at bottom */}
+          {grouped.ungrouped.map((mapping) => {
             const output = ccOutputs.find(
               (o) => o.mapping.id === mapping.id,
             );
+            const idx = flatIndex(mapping);
             return (
               <MappingRow
                 key={mapping.id}
@@ -81,6 +160,11 @@ export function MappingPanel({
                 currentOutput={output}
                 onUpdate={(updates) => onUpdateMapping(mapping.id, updates)}
                 onDelete={() => onRemoveMapping(mapping.id)}
+                index={idx}
+                onDragStart={setDragIndex}
+                onDragOver={setDropTarget}
+                onDrop={handleDrop}
+                isDragTarget={dropTarget === idx}
               />
             );
           })}

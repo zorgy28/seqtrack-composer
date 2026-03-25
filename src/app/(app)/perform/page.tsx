@@ -31,6 +31,7 @@ export default function PerformPage() {
     updateMapping,
     addMapping,
     removeMapping,
+    reorderMappings,
   } = useHandTracking();
 
   const handCount = frame?.hands.length ?? 0;
@@ -92,6 +93,7 @@ export default function PerformPage() {
               onAddMapping={addMapping}
               onRemoveMapping={removeMapping}
               onLoadPreset={loadPreset}
+              onReorderMappings={reorderMappings}
             />
           </div>
         </div>

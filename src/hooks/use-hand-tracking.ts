@@ -126,6 +126,7 @@ export interface UseHandTrackingReturn {
   updateMapping: (id: string, updates: Partial<GestureMapping>) => void;
   addMapping: (mapping: GestureMapping) => void;
   removeMapping: (id: string) => void;
+  reorderMappings: (reordered: GestureMapping[]) => void;
   updateConfig: (updates: Partial<HandTrackingConfig>) => void;
 }
 
@@ -616,6 +617,13 @@ export function useHandTracking(): UseHandTrackingReturn {
     lastSentRef.current.delete(id);
   }, []);
 
+  // ── reorderMappings() ──────────────────────────────────────
+
+  const reorderMappings = useCallback((reordered: GestureMapping[]) => {
+    setMappings(reordered);
+    saveMappingsToStorage(reordered);
+  }, []);
+
   // ── updateConfig() ───────────────────────────────────────────
 
   const updateConfig = useCallback(
@@ -686,6 +694,7 @@ export function useHandTracking(): UseHandTrackingReturn {
     updateMapping,
     addMapping,
     removeMapping,
+    reorderMappings,
     updateConfig,
   };
 }

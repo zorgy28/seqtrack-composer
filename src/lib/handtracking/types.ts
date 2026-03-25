@@ -154,6 +154,7 @@ export interface GestureMapping {
   outputRange: [number, number];
   invert: boolean;
   enabled: boolean;
+  group?: string;  // Optional group name for UI organization
 }
 
 export interface MappingPreset {
