@@ -10,7 +10,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { GestureMapping, GestureAxis, CCOutput } from "@/lib/handtracking/types";
-import { GESTURE_AXIS_LABELS } from "@/lib/handtracking/types";
+import { GESTURE_AXIS_LABELS, HAND_AXIS_KEYS, FACE_AXIS_KEYS } from "@/lib/handtracking/types";
+import { SelectGroup, SelectLabel } from "@/components/ui/select";
 import { ALL_CHANNELS, SEQTRAK_TRACKS } from "@/lib/midi/constants";
 import { getCCsForChannel } from "@/lib/midi/cc-map";
 import type { SeqtrackChannel } from "@/lib/midi/types";
@@ -22,7 +23,6 @@ interface MappingRowProps {
   onDelete: () => void;
 }
 
-const GESTURE_AXES = Object.keys(GESTURE_AXIS_LABELS) as GestureAxis[];
 
 const HAND_OPTIONS: Array<{ value: GestureMapping["hand"]; label: string }> = [
   { value: "Left", label: "Left" },
@@ -50,11 +50,22 @@ export function MappingRow({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {GESTURE_AXES.map((axis) => (
-            <SelectItem key={axis} value={axis}>
-              {GESTURE_AXIS_LABELS[axis]}
-            </SelectItem>
-          ))}
+          <SelectGroup>
+            <SelectLabel className="text-[10px] font-semibold">Hand</SelectLabel>
+            {HAND_AXIS_KEYS.map((axis) => (
+              <SelectItem key={axis} value={axis}>
+                {GESTURE_AXIS_LABELS[axis]}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+          <SelectGroup>
+            <SelectLabel className="text-[10px] font-semibold">Face</SelectLabel>
+            {FACE_AXIS_KEYS.map((axis) => (
+              <SelectItem key={axis} value={axis}>
+                {GESTURE_AXIS_LABELS[axis]}
+              </SelectItem>
+            ))}
+          </SelectGroup>
         </SelectContent>
       </Select>
 

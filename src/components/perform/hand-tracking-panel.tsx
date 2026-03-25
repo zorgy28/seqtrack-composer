@@ -12,7 +12,8 @@ import {
   CardFooter,
 } from "@/components/ui/card";
 import { CameraFeed } from "./camera-feed";
-import type { ModelLoadStatus } from "@/lib/handtracking/types";
+import { SignDisplay } from "./sign-display";
+import type { HandState, ModelLoadStatus } from "@/lib/handtracking/types";
 
 interface HandTrackingPanelProps {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -22,6 +23,8 @@ interface HandTrackingPanelProps {
   modelStatus: ModelLoadStatus;
   fps: number;
   handCount: number;
+  faceDetected: boolean;
+  hands: HandState[];
   error: string | null;
   mirror: boolean;
   onStart: () => void;
@@ -55,6 +58,8 @@ export function HandTrackingPanel({
   modelStatus,
   fps,
   handCount,
+  faceDetected,
+  hands,
   error,
   mirror,
   onStart,
@@ -76,6 +81,11 @@ export function HandTrackingPanel({
                 <Badge variant="outline" className="font-mono tabular-nums">
                   {handCount} {handCount === 1 ? "hand" : "hands"}
                 </Badge>
+                {faceDetected && (
+                  <Badge variant="outline" className="font-mono">
+                    face
+                  </Badge>
+                )}
               </>
             )}
           </div>
@@ -105,6 +115,7 @@ export function HandTrackingPanel({
       </CardContent>
 
       <CardFooter>
+        <div className="flex items-center justify-between w-full gap-2">
         <div className="flex items-center gap-2">
           {!isTracking ? (
             <Button
@@ -139,6 +150,8 @@ export function HandTrackingPanel({
               </Button>
             </>
           )}
+        </div>
+        {isTracking && <SignDisplay hands={hands} />}
         </div>
       </CardFooter>
     </Card>

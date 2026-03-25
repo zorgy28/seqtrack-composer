@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Music } from "lucide-react";
 import { TranscribeDialog } from "@/components/compose/transcribe-dialog";
+import { Logo } from "@/components/ui/logo";
 
 export function AppHeader() {
   const { project, updateBpm } = useProject();
@@ -14,7 +15,10 @@ export function AppHeader() {
 
   return (
     <>
-      <header className="flex items-center gap-4 px-4 h-12 border-b border-border shrink-0">
+      <header className="relative flex items-center gap-4 px-4 h-12 border-b border-border shrink-0">
+        {/* Orange accent line at top */}
+        <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-primary via-primary/60 to-transparent" />
+
         <span className="text-sm font-medium truncate max-w-[200px]">
           {project.name}
         </span>
@@ -48,9 +52,7 @@ export function AppHeader() {
 
         <div className="flex-1" />
 
-        <span className="text-xs text-muted-foreground font-mono">
-          SEQTRAK
-        </span>
+        <Logo size="sm" />
       </header>
 
       <TranscribeDialog

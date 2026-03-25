@@ -34,6 +34,8 @@ export default function PerformPage() {
   } = useHandTracking();
 
   const handCount = frame?.hands.length ?? 0;
+  const faceDetected = frame?.face !== null && frame?.face !== undefined;
+  const hands = frame?.hands ?? [];
 
   // Reset all active FX mappings to their default CC values
   const resetFX = useCallback(async () => {
@@ -71,6 +73,8 @@ export default function PerformPage() {
               modelStatus={modelStatus}
               fps={fps}
               handCount={handCount}
+              faceDetected={faceDetected}
+              hands={hands}
               error={error}
               mirror={config.mirrorVideo}
               onStart={start}

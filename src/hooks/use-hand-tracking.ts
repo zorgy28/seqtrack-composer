@@ -155,6 +155,8 @@ export function useHandTracking(): UseHandTrackingReturn {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const landmarkerRef = useRef<any>(null); // HandLandmarker instance
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const faceLandmarkerRef = useRef<any>(null); // FaceLandmarker instance
   const filtersRef = useRef<Map<string, OneEuroFilter>>(new Map());
   const lastSentRef = useRef<Map<string, number>>(new Map());
   const rafRef = useRef<number | null>(null);
@@ -171,6 +173,9 @@ export function useHandTracking(): UseHandTrackingReturn {
   const mappingModRef = useRef<MappingEngineModule | null>(null);
   const midiSenderModRef = useRef<MidiSenderModule | null>(null);
   const rendererModRef = useRef<LandmarkRendererModule | null>(null);
+  const faceExtractorModRef = useRef<FaceExtractorModule | null>(null);
+  const signDetectorModRef = useRef<SignDetectorModule | null>(null);
+  const faceRendererModRef = useRef<FaceRendererModule | null>(null);
 
   // We keep refs for values the rAF loop needs to read without re-creating
   const mappingsRef = useRef(mappings);
@@ -204,7 +209,11 @@ export function useHandTracking(): UseHandTrackingReturn {
       const mappingMod = mappingModRef.current;
       const midiSenderMod = midiSenderModRef.current;
       const rendererMod = rendererModRef.current;
+      const faceExtractorMod = faceExtractorModRef.current;
+      const signDetectorMod = signDetectorModRef.current;
+      const faceRendererMod = faceRendererModRef.current;
       const landmarker = landmarkerRef.current;
+      const faceLandmarker = faceLandmarkerRef.current;
       const video = videoRef.current;
 
       if (!mediapipeMod || !gestureMod || !mappingMod || !landmarker || !video
@@ -232,13 +241,34 @@ export function useHandTracking(): UseHandTrackingReturn {
         return;
       }
 
+      // ── Detect face ───────────────────────────────────────────
+      let faceAxes: FaceAxes | null = null;
+      let faceLandmarks: FaceLandmarks | null = null;
+      if (faceLandmarker && faceExtractorMod) {
+        try {
+          const faceResult = mediapipeMod.detectFace(faceLandmarker, video, now);
+          if (faceResult.landmarks.length > 0) {
+            faceAxes = faceExtractorMod.extractFaceAxes(faceResult.blendshapes);
+            faceLandmarks = faceResult.landmarks[0];
+          }
+        } catch {
+          // Non-fatal: face detection failure doesn't stop tracking
+        }
+      }
+
       // ── Build HandState[] ─────────────────────────────────────
-      const hands: HandState[] = result.landmarks.map((landmarks, i) => ({
-        handedness: result.handedness[i] ?? "Right",
-        axes: gestureMod.extractGestureAxes(landmarks),
-        landmarks,
-        isTracked: true,
-      }));
+      const hands: HandState[] = result.landmarks.map((landmarks, i) => {
+        const sign: HandSign = signDetectorMod
+          ? signDetectorMod.detectHandSign(landmarks)
+          : "none";
+        return {
+          handedness: result.handedness[i] ?? "Right",
+          axes: gestureMod.extractGestureAxes(landmarks),
+          landmarks,
+          sign,
+          isTracked: true,
+        };
+      });
 
       // ── Build TrackingFrame ───────────────────────────────────
       const currentMappings = mappingsRef.current;
@@ -260,6 +290,8 @@ export function useHandTracking(): UseHandTrackingReturn {
       const trackingFrame: TrackingFrame = {
         timestamp: now,
         hands,
+        face: faceAxes,
+        faceLandmarks,
         fps: currentFps,
       };
 
@@ -292,31 +324,40 @@ export function useHandTracking(): UseHandTrackingReturn {
 
       // ── Draw landmarks on canvas ──────────────────────────────
       const canvas = canvasRef.current;
-      if (rendererMod && canvas) {
+      if (canvas) {
         const ctx = canvas.getContext("2d");
         if (ctx) {
           // Use CSS display size (not buffer size which may be DPR-scaled)
           const cw = canvas.clientWidth || canvas.width;
           const ch = canvas.clientHeight || canvas.height;
           ctx.clearRect(0, 0, canvas.width, canvas.height);
-          for (const hand of hands) {
-            // mirror=false: CSS scaleX(-1) handles mirroring on both video and canvas
-            rendererMod.drawLandmarks(
-              ctx,
-              hand.landmarks,
-              hand.handedness,
-              cw,
-              ch,
-              false,
-            );
-            rendererMod.drawGestureIndicators(
-              ctx,
-              hand.axes,
-              hand.landmarks,
-              cw,
-              ch,
-              false,
-            );
+
+          // Draw face mesh
+          if (faceRendererMod && faceLandmarks) {
+            faceRendererMod.drawFaceMesh(ctx, faceLandmarks, cw, ch);
+          }
+
+          // Draw hand landmarks
+          if (rendererMod) {
+            for (const hand of hands) {
+              // mirror=false: CSS scaleX(-1) handles mirroring on both video and canvas
+              rendererMod.drawLandmarks(
+                ctx,
+                hand.landmarks,
+                hand.handedness,
+                cw,
+                ch,
+                false,
+              );
+              rendererMod.drawGestureIndicators(
+                ctx,
+                hand.axes,
+                hand.landmarks,
+                cw,
+                ch,
+                false,
+              );
+            }
           }
         }
       }
@@ -358,11 +399,16 @@ export function useHandTracking(): UseHandTrackingReturn {
       streamRef.current = null;
     }
 
-    // Dispose MediaPipe landmarker
+    // Dispose MediaPipe landmarkers
     const landmarker = landmarkerRef.current;
     if (landmarker && mediapipeModRef.current) {
       mediapipeModRef.current.disposeHandLandmarker(landmarker);
       landmarkerRef.current = null;
+    }
+    const faceLandmarker = faceLandmarkerRef.current;
+    if (faceLandmarker && mediapipeModRef.current) {
+      try { mediapipeModRef.current.disposeFaceLandmarker(faceLandmarker); } catch { /* best-effort */ }
+      faceLandmarkerRef.current = null;
     }
 
     // Clear video source
@@ -437,20 +483,28 @@ export function useHandTracking(): UseHandTrackingReturn {
       });
 
       // ── 2. Dynamic imports (cached in refs) ─────────────────
-      const [mediapipeMod, gestureMod, mappingMod, midiSenderMod, rendererMod] =
-        await Promise.all([
-          import("@/lib/handtracking/mediapipe-loader") as Promise<MediaPipeLoaderModule>,
-          import("@/lib/handtracking/gesture-extractor") as Promise<GestureExtractorModule>,
-          import("@/lib/handtracking/mapping-engine") as Promise<MappingEngineModule>,
-          import("@/lib/webmidi/midi-sender") as Promise<MidiSenderModule>,
-          import("@/lib/handtracking/landmark-renderer") as Promise<LandmarkRendererModule>,
-        ]);
+      const [
+        mediapipeMod, gestureMod, mappingMod, midiSenderMod, rendererMod,
+        faceExtractorMod, signDetectorMod, faceRendererMod,
+      ] = await Promise.all([
+        import("@/lib/handtracking/mediapipe-loader") as Promise<MediaPipeLoaderModule>,
+        import("@/lib/handtracking/gesture-extractor") as Promise<GestureExtractorModule>,
+        import("@/lib/handtracking/mapping-engine") as Promise<MappingEngineModule>,
+        import("@/lib/webmidi/midi-sender") as Promise<MidiSenderModule>,
+        import("@/lib/handtracking/landmark-renderer") as Promise<LandmarkRendererModule>,
+        import("@/lib/handtracking/face-extractor") as Promise<FaceExtractorModule>,
+        import("@/lib/handtracking/sign-detector") as Promise<SignDetectorModule>,
+        import("@/lib/handtracking/face-renderer") as Promise<FaceRendererModule>,
+      ]);
 
       mediapipeModRef.current = mediapipeMod;
       gestureModRef.current = gestureMod;
       mappingModRef.current = mappingMod;
       midiSenderModRef.current = midiSenderMod;
       rendererModRef.current = rendererMod;
+      faceExtractorModRef.current = faceExtractorMod;
+      signDetectorModRef.current = signDetectorMod;
+      faceRendererModRef.current = faceRendererMod;
 
       // ── 3. GPU capability detection ─────────────────────────
       const gpuCaps = await mediapipeMod.detectGPUCapabilities();
@@ -461,9 +515,16 @@ export function useHandTracking(): UseHandTrackingReturn {
         configRef.current = resolvedConfig;
       }
 
-      // ── 4. Initialize MediaPipe HandLandmarker ──────────────
-      const landmarker = await mediapipeMod.initHandLandmarker(resolvedConfig);
+      // ── 4. Initialize MediaPipe landmarkers (hand + face in parallel) ──
+      const [landmarker, faceLandmarker] = await Promise.all([
+        mediapipeMod.initHandLandmarker(resolvedConfig),
+        mediapipeMod.initFaceLandmarker(resolvedConfig).catch((err) => {
+          console.warn("[HandTracking] Face landmarker failed to init, skipping:", err);
+          return null;
+        }),
+      ]);
       landmarkerRef.current = landmarker;
+      faceLandmarkerRef.current = faceLandmarker;
 
       // ── 5. Ready — start detection loop ─────────────────────
       setModelStatus("ready");
@@ -583,7 +644,7 @@ export function useHandTracking(): UseHandTrackingReturn {
         streamRef.current = null;
       }
 
-      // Dispose MediaPipe landmarker (use cached module ref, no new dynamic import)
+      // Dispose MediaPipe landmarkers (use cached module ref, no new dynamic import)
       const landmarker = landmarkerRef.current;
       const mediapipeMod = mediapipeModRef.current;
       if (landmarker) {
@@ -591,6 +652,13 @@ export function useHandTracking(): UseHandTrackingReturn {
           try { mediapipeMod.disposeHandLandmarker(landmarker); } catch { /* best-effort cleanup */ }
         }
         landmarkerRef.current = null;
+      }
+      const faceLandmarker = faceLandmarkerRef.current;
+      if (faceLandmarker) {
+        if (mediapipeMod) {
+          try { mediapipeMod.disposeFaceLandmarker(faceLandmarker); } catch { /* best-effort cleanup */ }
+        }
+        faceLandmarkerRef.current = null;
       }
     };
   }, []);

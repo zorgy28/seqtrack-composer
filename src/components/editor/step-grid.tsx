@@ -55,12 +55,12 @@ function StepCell({
     <button
       onClick={onClick}
       className={cn(
-        "w-full rounded-sm border transition-all",
+        "w-full rounded-md border transition-all",
         size === "normal" ? "h-8" : "h-5",
-        beat ? "border-border/60" : "border-border/30",
+        beat ? "border-[var(--seqtrak-pad-border)]" : "border-border/30",
         active
-          ? `${colorClass} border-transparent`
-          : "bg-background hover:bg-accent/30",
+          ? `${colorClass} border-transparent seqtrak-pad-active`
+          : "bg-[var(--seqtrak-pad-inactive)] hover:bg-accent/40 seqtrak-pad",
         isCurrentStep && "ring-1 ring-primary/80 bg-primary/15",
         extraClass,
       )}
@@ -601,7 +601,7 @@ export function StepGrid({ currentStep }: { currentStep?: number | null }) {
       </div>
 
       {/* Drum section */}
-      <div className="text-[10px] text-muted-foreground px-2 py-1 font-mono uppercase tracking-wider">
+      <div className="seqtrak-section-label px-2 py-1.5">
         Drums
       </div>
       {DRUM_CHANNELS.map((ch) => (
@@ -609,7 +609,7 @@ export function StepGrid({ currentStep }: { currentStep?: number | null }) {
       ))}
 
       {/* Synth section */}
-      <div className="text-[10px] text-muted-foreground px-2 py-1 mt-2 font-mono uppercase tracking-wider">
+      <div className="seqtrak-section-label px-2 py-1.5 mt-2">
         Synths
       </div>
       {SYNTH_CHANNELS.map((ch) => (

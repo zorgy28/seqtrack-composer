@@ -47,10 +47,10 @@ function Slider({
       />
       <div
         className={cn(
-          "absolute top-1/2 -translate-y-1/2 size-3 rounded-full border border-ring bg-white pointer-events-none transition-colors",
+          "absolute top-1/2 -translate-y-1/2 size-3.5 rounded-full pointer-events-none transition-colors seqtrak-knob",
           disabled && "opacity-50",
         )}
-        style={{ left: `calc(${percent}% - 6px)` }}
+        style={{ left: `calc(${percent}% - 7px)` }}
       />
     </div>
   );
