@@ -12,8 +12,9 @@ export async function generateWithFallback<T>(options: {
   system: string;
   prompt: string;
   supportsStructuredOutput: boolean;
+  maxOutputTokens?: number;
 }): Promise<T> {
-  const { model, schema, system, prompt, supportsStructuredOutput: structured } = options;
+  const { model, schema, system, prompt, supportsStructuredOutput: structured, maxOutputTokens = 16384 } = options;
 
   if (structured) {
     // Use native structured output (Claude supports this)
@@ -22,6 +23,7 @@ export async function generateWithFallback<T>(options: {
       output: Output.object({ schema }),
       system,
       prompt,
+      maxOutputTokens,
     });
     if (!output) throw new Error("No output generated");
     return output;
@@ -35,6 +37,7 @@ export async function generateWithFallback<T>(options: {
     model,
     system: system + jsonInstruction + thinkingDisable,
     prompt,
+    maxOutputTokens,
   });
 
   return extractAndValidateJSON(text, schema);

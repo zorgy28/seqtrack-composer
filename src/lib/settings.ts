@@ -59,7 +59,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   geminiModel: "gemini-2.5-flash",
   openrouterApiKey: "",
   openrouterModel: "anthropic/claude-sonnet-4.5",
-  lmStudioUrl: "http://169.254.48.100:1235/v1",
+  lmStudioUrl: "http://host.docker.internal:1235/v1",
   lmStudioModel: "minimax/minimax-m2.5",
   temperature: 0.3,
   maxTokens: 8192,

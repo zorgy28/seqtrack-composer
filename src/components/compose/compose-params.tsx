@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { NOTE_NAMES, SCALE_NAMES, BPM_MIN, BPM_MAX } from "@/lib/midi/constants";
-import { ModelSelector, type ModelSelection } from "./model-selector";
+import { ModelSelector, type ModelSelection, type LLMProvider } from "./model-selector";
 
 // ── Constants ────────────────────────────────────────────────────
 
@@ -173,10 +173,7 @@ export function ComposeParams({
       {/* Model selector */}
       <div className="flex flex-col gap-1">
         <ModelSelector
-          value={{
-            provider: modelProvider as "claude" | "lmstudio",
-            model: modelId,
-          }}
+          value={{ provider: modelProvider as LLMProvider, model: modelId }}
           onChange={(sel: ModelSelection) => onModelChange(sel.provider, sel.model)}
           disabled={disabled}
         />

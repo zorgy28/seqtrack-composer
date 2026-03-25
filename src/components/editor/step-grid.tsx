@@ -10,7 +10,6 @@ import { getScaleNotes, midiToNoteName } from "@/lib/midi/note-utils";
 import type { SeqtrackChannel, Note, Pattern } from "@/lib/midi/types";
 import { cn } from "@/lib/utils";
 import { SoundPicker } from "./sound-picker";
-import { recommendSounds, detectGenreFromPattern } from "@/lib/transcription/sound-matcher";
 
 // ─── Color Maps ────────────────────────────────────────────────
 
@@ -35,7 +34,6 @@ function StepCell({
   velocity,
   colorClass,
   beat,
-  isCurrentStep,
   onClick,
   size = "normal",
   tooltip,
@@ -45,7 +43,6 @@ function StepCell({
   velocity: number;
   colorClass: string;
   beat: boolean;
-  isCurrentStep: boolean;
   onClick: () => void;
   size?: "normal" | "compact";
   tooltip?: string;
@@ -55,13 +52,12 @@ function StepCell({
     <button
       onClick={onClick}
       className={cn(
-        "w-full rounded-md border transition-all",
+        "w-full rounded-md border transition-colors",
         size === "normal" ? "h-8" : "h-5",
         beat ? "border-[var(--seqtrak-pad-border)]" : "border-border/30",
         active
           ? `${colorClass} border-transparent seqtrak-pad-active`
           : "bg-[var(--seqtrak-pad-inactive)] hover:bg-accent/40 seqtrak-pad",
-        isCurrentStep && "ring-1 ring-primary/80 bg-primary/15",
         extraClass,
       )}
       style={active ? { opacity: 0.4 + (velocity / 127) * 0.6 } : undefined}
@@ -76,7 +72,6 @@ function TrackHeader({
   channel,
 }: {
   channel: SeqtrackChannel;
-  currentStep?: number | null;
 }) {
   const { project, setProject, selectedChannel, setSelectedChannel } = useProject();
   const { getTrackSound } = useSoundControl();
@@ -88,13 +83,7 @@ function TrackHeader({
   const dotColor = TRACK_BG[info.color] ?? "bg-gray-500";
   const trackColor = TRACK_BG_ACTIVE[info.color] ?? "bg-gray-500/80";
   const currentPreset = getTrackSound(channel).preset;
-  const soundDisplayName = useMemo(() => {
-    if (currentPreset) return currentPreset.name;
-    // Show suggested sound name when none explicitly selected
-    const genre = detectGenreFromPattern(project);
-    const { primary } = recommendSounds(channel, genre);
-    return primary.name;
-  }, [currentPreset, project, channel]);
+  const soundDisplayName = currentPreset?.name ?? "—";
 
   const toggleMute = () => {
     const updatedTrack = { ...track, muted: !track.muted };
@@ -264,7 +253,6 @@ function PianoRollGrid({
   pattern,
   totalSteps,
   colorClass,
-  currentStep,
   onToggle,
   ensembleAtStep,
 }: {
@@ -272,7 +260,6 @@ function PianoRollGrid({
   pattern: Pattern;
   totalSteps: number;
   colorClass: string;
-  currentStep: number | null;
   onToggle: (step: number, pitch: number) => void;
   /** Map of step → array of MIDI pitches playing on OTHER channels at that step */
   ensembleAtStep: Map<number, number[]>;
@@ -342,7 +329,6 @@ function PianoRollGrid({
                     velocity={note?.velocity ?? 0}
                     colorClass={colorClass}
                     beat={isBeat}
-                    isCurrentStep={currentStep === step}
                     onClick={() => onToggle(step, pitch)}
                     size="compact"
                     tooltip={tooltip}
@@ -362,10 +348,8 @@ function PianoRollGrid({
 
 const DrumTrackRow = memo(function DrumTrackRow({
   channel,
-  currentStep,
 }: {
   channel: SeqtrackChannel;
-  currentStep?: number | null;
 }) {
   const { project, updatePattern, selectedChannel } = useProject();
   const track = project.tracks[channel];
@@ -396,7 +380,7 @@ const DrumTrackRow = memo(function DrumTrackRow({
         selectedChannel === channel && "bg-accent/20",
       )}
     >
-      <TrackHeader channel={channel} currentStep={currentStep} />
+      <TrackHeader channel={channel} />
 
       <div className="flex gap-px flex-1 pr-2">
         {Array.from({ length: totalSteps }, (_, step) => {
@@ -409,7 +393,6 @@ const DrumTrackRow = memo(function DrumTrackRow({
               velocity={note?.velocity ?? 0}
               colorClass={colorClass}
               beat={isBeat}
-              isCurrentStep={currentStep === step}
               onClick={() => handleToggle(step)}
             />
           );
@@ -423,10 +406,8 @@ const DrumTrackRow = memo(function DrumTrackRow({
 
 const MelodicTrackRow = memo(function MelodicTrackRow({
   channel,
-  currentStep,
 }: {
   channel: SeqtrackChannel;
-  currentStep?: number | null;
 }) {
   const { project, updatePattern, selectedChannel, setSelectedChannel } = useProject();
   const track = project.tracks[channel];
@@ -516,7 +497,7 @@ const MelodicTrackRow = memo(function MelodicTrackRow({
           selectedChannel === channel && "bg-accent/20",
         )}
       >
-        <TrackHeader channel={channel} currentStep={currentStep} />
+        <TrackHeader channel={channel} />
 
         <div className="flex gap-px flex-1 pr-2">
           {Array.from({ length: totalSteps }, (_, step) => {
@@ -529,8 +510,7 @@ const MelodicTrackRow = memo(function MelodicTrackRow({
                 velocity={note?.velocity ?? 0}
                 colorClass={colorClass}
                 beat={isBeat}
-                isCurrentStep={currentStep === step}
-                onClick={() => setSelectedChannel(channel)}
+                  onClick={() => setSelectedChannel(channel)}
                 tooltip={stepTooltips.get(step)}
               />
             );
@@ -544,7 +524,7 @@ const MelodicTrackRow = memo(function MelodicTrackRow({
   return (
     <div className={cn("bg-accent/20")}>
       <div className="flex items-center gap-0 group">
-        <TrackHeader channel={channel} currentStep={currentStep} />
+        <TrackHeader channel={channel} />
 
         <OctaveSelector
           octaveStart={octaveStart}
@@ -561,7 +541,6 @@ const MelodicTrackRow = memo(function MelodicTrackRow({
         pattern={pattern}
         totalSteps={totalSteps}
         colorClass={colorClass}
-        currentStep={currentStep ?? null}
         onToggle={handleToggle}
         ensembleAtStep={ensembleAtStep}
       />
@@ -605,7 +584,7 @@ export function StepGrid({ currentStep }: { currentStep?: number | null }) {
         Drums
       </div>
       {DRUM_CHANNELS.map((ch) => (
-        <DrumTrackRow key={ch} channel={ch} currentStep={currentStep} />
+        <DrumTrackRow key={ch} channel={ch} />
       ))}
 
       {/* Synth section */}
@@ -613,7 +592,7 @@ export function StepGrid({ currentStep }: { currentStep?: number | null }) {
         Synths
       </div>
       {SYNTH_CHANNELS.map((ch) => (
-        <MelodicTrackRow key={ch} channel={ch} currentStep={currentStep} />
+        <MelodicTrackRow key={ch} channel={ch} />
       ))}
     </div>
   );

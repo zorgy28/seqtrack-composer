@@ -93,6 +93,7 @@ export interface ComposeResultsProps {
   onApplyAndEdit: () => void;
   onRefine: (instruction: string) => void;
   onSuggestionClick: (suggestion: string) => void;
+  onReuseDescription?: (description: string) => void;
 }
 
 // ── Component ───────────────────────────────────────────────────
@@ -107,6 +108,7 @@ export function ComposeResults({
   onApplyAndEdit,
   onRefine,
   onSuggestionClick,
+  onReuseDescription,
 }: ComposeResultsProps) {
   const [refineText, setRefineText] = useState("");
 
@@ -127,7 +129,19 @@ export function ComposeResults({
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-border p-4">
       {/* Description */}
-      <p className="text-sm text-muted-foreground">{result.description}</p>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm text-muted-foreground flex-1">{result.description}</p>
+        {onReuseDescription && (
+          <button
+            type="button"
+            onClick={() => onReuseDescription(result.description)}
+            className="shrink-0 text-[11px] text-muted-foreground/60 hover:text-primary transition-colors"
+            title="Use as prompt"
+          >
+            ↩ Use as prompt
+          </button>
+        )}
+      </div>
 
       {/* Per-track rows */}
       {activeTracks.length > 0 && (

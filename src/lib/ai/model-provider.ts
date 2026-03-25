@@ -18,7 +18,7 @@ const lmStudioFetch: typeof fetch = (url, init) => {
 function createLMStudioProvider() {
   return createOpenAICompatible({
     name: "lmstudio",
-    baseURL: process.env.LM_STUDIO_URL || "http://169.254.48.100:1235/v1",
+    baseURL: process.env.LM_STUDIO_URL || "http://host.docker.internal:1235/v1",
     headers: {
       Authorization: `Bearer ${process.env.LM_STUDIO_API_KEY || ""}`,
     },

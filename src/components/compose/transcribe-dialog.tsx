@@ -186,7 +186,7 @@ export function TranscribeDialog({ open, onOpenChange }: TranscribeDialogProps) 
                 onUrlSubmit={startFromUrl}
                 bars={bars}
                 onBarsChange={setBars}
-                modelSelection={{ provider: modelProvider as "claude" | "lmstudio", model: modelId }}
+                modelSelection={{ provider: modelProvider as import("./model-selector").LLMProvider, model: modelId }}
                 onModelChange={(sel) => { setModelProvider(sel.provider); setModelId(sel.model); }}
               />
               {history.length > 0 && (

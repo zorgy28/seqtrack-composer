@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { getSettings } from "@/lib/settings";
 import { useProject } from "@/providers/project-provider";
 import { useMidiConnection } from "@/hooks/use-midi-connection";
 import { useSoundControl } from "@/hooks/use-sound-control";
@@ -10,7 +11,7 @@ import { getAllPresets } from "@/lib/midi/sound-library";
 import type { SeqtrackChannel } from "@/lib/midi/types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Sparkles } from "lucide-react";
+import { Loader2, Sparkles, Wand2 } from "lucide-react";
 import { ComposeParams as ComposeParamsPanel } from "@/components/compose/compose-params";
 import { ComposePresets } from "@/components/compose/compose-presets";
 import { ComposeResults } from "@/components/compose/compose-results";
@@ -30,15 +31,25 @@ export default function ComposePage() {
     refine,
     reset,
     restoreFromHistory,
+    clearHistory,
   } = useCompose();
 
   const [prompt, setPrompt] = useState("");
   const [bars, setBars] = useState(2);
   const [swing, setSwing] = useState(0);
-  const [modelProvider, setModelProvider] = useState("claude");
-  const [modelId, setModelId] = useState("claude-sonnet-4");
+  const [modelProvider, setModelProvider] = useState<string>(() => getSettings().llmProvider);
+  const [modelId, setModelId] = useState(() => {
+    const s = getSettings();
+    switch (s.llmProvider) {
+      case "gemini":     return s.geminiModel     || "gemini-2.5-flash";
+      case "openrouter": return s.openrouterModel || "anthropic/claude-sonnet-4.5";
+      case "lm-studio":  return s.lmStudioModel   || "";
+      default:           return s.claudeModel     || "claude-sonnet-4-6";
+    }
+  });
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentStep, setCurrentStep] = useState<number | null>(null);
+  const [isEnhancing, setIsEnhancing] = useState(false);
   const cancelPreviewRef = useRef<(() => void) | null>(null);
 
   // ── Stop Preview ────────────────────────────────────────────────
@@ -51,6 +62,36 @@ export default function ComposePage() {
     setIsPlaying(false);
     setCurrentStep(null);
   }, []);
+
+  // ── Enhance Prompt ──────────────────────────────────────────────
+
+  const handleEnhancePrompt = useCallback(async () => {
+    if (!prompt.trim() || isEnhancing) return;
+    setIsEnhancing(true);
+    try {
+      const res = await fetch("/api/enhance-prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          bpm: project.bpm,
+          scaleRoot: project.scaleRoot,
+          scaleName: project.scaleName,
+          bars,
+          modelProvider,
+          modelId,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json() as { enhancedPrompt?: string };
+        if (data.enhancedPrompt) setPrompt(data.enhancedPrompt);
+      }
+    } catch {
+      // silently fail — user keeps original prompt
+    } finally {
+      setIsEnhancing(false);
+    }
+  }, [prompt, project.bpm, project.scaleRoot, project.scaleName, bars, modelProvider, modelId, isEnhancing]);
 
   // ── Generate ────────────────────────────────────────────────────
 
@@ -229,6 +270,24 @@ export default function ComposePage() {
                 </>
               )}
             </Button>
+            <Button
+              variant="outline"
+              onClick={handleEnhancePrompt}
+              disabled={isEnhancing || stage === "loading" || !prompt.trim()}
+              title="Expand your prompt into a detailed production description"
+            >
+              {isEnhancing ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Enhancing…
+                </>
+              ) : (
+                <>
+                  <Wand2 className="w-4 h-4 mr-2" />
+                  Enhance
+                </>
+              )}
+            </Button>
             <span className="text-xs text-muted-foreground">Cmd+Enter</span>
           </div>
         </div>
@@ -266,6 +325,7 @@ export default function ComposePage() {
               stopPreview();
               refine(s);
             }}
+            onReuseDescription={(desc) => setPrompt(desc)}
           />
         )}
 
@@ -277,6 +337,8 @@ export default function ComposePage() {
               stopPreview();
               restoreFromHistory(i);
             }}
+            onUsePrompt={(p) => setPrompt(p)}
+            onClear={clearHistory}
           />
         )}
       </div>

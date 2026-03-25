@@ -6,7 +6,29 @@ import { useAsyncOperation, type AsyncStage } from "./use-async-operation";
 
 export type ComposeStage = AsyncStage;
 
-const MAX_HISTORY = 5;
+const MAX_HISTORY = 20;
+const LS_KEY = "seqtrack-compose-history";
+
+type HistoryEntry = { params: ComposeParams; result: CompositionOutput; timestamp: number };
+
+function loadHistory(): HistoryEntry[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as HistoryEntry[];
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(history: HistoryEntry[]): void {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(history));
+  } catch {
+    // Storage full — silently fail
+  }
+}
 
 export interface ComposeParams {
   prompt: string;
@@ -23,17 +45,26 @@ export interface UseComposeReturn {
   stage: ComposeStage;
   result: CompositionOutput | null;
   error: string | null;
-  history: Array<{ params: ComposeParams; result: CompositionOutput; timestamp: number }>;
+  history: HistoryEntry[];
   generate: (params: ComposeParams) => Promise<void>;
   refine: (instruction: string) => Promise<void>;
   reset: () => void;
   restoreFromHistory: (index: number) => void;
+  clearHistory: () => void;
 }
 
 export function useCompose(): UseComposeReturn {
   const { stage, result, error, run, setResult, reset: resetAsync } = useAsyncOperation<CompositionOutput>();
-  const [history, setHistory] = useState<Array<{ params: ComposeParams; result: CompositionOutput; timestamp: number }>>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory());
   const lastParamsRef = useRef<ComposeParams | null>(null);
+
+  const addToHistory = useCallback((params: ComposeParams, data: CompositionOutput) => {
+    setHistory(prev => {
+      const next = [{ params, result: data, timestamp: Date.now() }, ...prev].slice(0, MAX_HISTORY);
+      saveHistory(next);
+      return next;
+    });
+  }, []);
 
   const generate = useCallback(async (params: ComposeParams) => {
     lastParamsRef.current = params;
@@ -60,10 +91,10 @@ export function useCompose(): UseComposeReturn {
       }
 
       const data = await res.json() as CompositionOutput;
-      setHistory(prev => [{ params, result: data, timestamp: Date.now() }, ...prev].slice(0, MAX_HISTORY));
+      addToHistory(params, data);
       return data;
     });
-  }, [run]);
+  }, [run, addToHistory]);
 
   const refine = useCallback(async (instruction: string) => {
     if (!result || !lastParamsRef.current) return;
@@ -94,10 +125,10 @@ export function useCompose(): UseComposeReturn {
       }
 
       const data = await res.json() as CompositionOutput;
-      setHistory(prev => [{ params, result: data, timestamp: Date.now() }, ...prev].slice(0, MAX_HISTORY));
+      addToHistory(params, data);
       return data;
     });
-  }, [result, run]);
+  }, [result, run, addToHistory]);
 
   const reset = useCallback(() => {
     resetAsync();
@@ -110,5 +141,10 @@ export function useCompose(): UseComposeReturn {
     lastParamsRef.current = entry.params;
   }, [history, setResult]);
 
-  return { stage, result, error, history, generate, refine, reset, restoreFromHistory };
+  const clearHistory = useCallback(() => {
+    setHistory([]);
+    try { localStorage.removeItem(LS_KEY); } catch { /* noop */ }
+  }, []);
+
+  return { stage, result, error, history, generate, refine, reset, restoreFromHistory, clearHistory };
 }
