@@ -126,7 +126,7 @@ export function SoundPicker({ channel, onClose }: SoundPickerProps) {
   return (
     <div
       ref={containerRef}
-      className="w-96 max-h-[400px] bg-popover border border-border rounded-lg shadow-xl z-50 overflow-hidden flex flex-col"
+      className="w-96 max-h-[500px] bg-popover border border-border rounded-lg shadow-xl z-50 overflow-hidden flex flex-col"
     >
       {/* A. AI Suggestion banner */}
       {suggestedPreset && (
@@ -147,7 +147,7 @@ export function SoundPicker({ channel, onClose }: SoundPickerProps) {
       )}
 
       {/* B. Category filter (horizontal scroll) */}
-      <div className="flex gap-1 px-2 py-1.5 border-b border-border overflow-x-auto scrollbar-none">
+      <div className="flex flex-wrap gap-1 px-2 py-1.5 border-b border-border shrink-0">
         <button
           className={cn(
             "px-2 py-0.5 rounded-full text-[10px] font-medium whitespace-nowrap transition-colors shrink-0",
@@ -176,7 +176,7 @@ export function SoundPicker({ channel, onClose }: SoundPickerProps) {
       </div>
 
       {/* C. Search input */}
-      <div className="px-2 py-1.5 border-b border-border">
+      <div className="px-2 py-1.5 border-b border-border shrink-0">
         <div className="relative">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
           <input
@@ -199,7 +199,7 @@ export function SoundPicker({ channel, onClose }: SoundPickerProps) {
       </div>
 
       {/* D. Preset list (scrollable) */}
-      <div className="max-h-[300px] overflow-y-auto" ref={(el) => {
+      <div className="flex-1 min-h-0 overflow-y-auto" ref={(el) => {
         // Auto-scroll to current preset on open
         if (el && currentPreset) {
           requestAnimationFrame(() => {
