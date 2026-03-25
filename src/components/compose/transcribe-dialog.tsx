@@ -94,12 +94,13 @@ export function TranscribeDialog({ open, onOpenChange }: TranscribeDialogProps) 
         .map(t => ({ pattern: t.patterns[0], channel: t.channel }));
 
       setPreviewingIndex(index);
-      const cancel = playPatternLoopedWithCursor(
+      const control = playPatternLoopedWithCursor(
         device.id,
         allTracks,
         raw.bpm,
         (step) => setCurrentStep(step),
       );
+      const cancel = control.cancel;
       cancelPreviewRef.current = [cancel];
     },
     [device, rawOptions, previewingIndex],

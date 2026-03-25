@@ -205,6 +205,11 @@ function getTimingWorker(): Worker | null {
  * project state. This means mute/unmute and pattern edits take effect
  * immediately without restarting playback.
  */
+export interface PlaybackControl {
+  cancel: () => void;
+  seek: (step: number) => void;
+}
+
 export function playPatternLoopedWithCursor(
   deviceId: string,
   tracks: Array<{ pattern: Pattern; channel: SeqtrackChannel }>,
@@ -214,9 +219,9 @@ export function playPatternLoopedWithCursor(
     tracks: Array<{ pattern: Pattern; channel: SeqtrackChannel; muted: boolean; volume: number }>;
     bpm: number;
   },
-): () => void {
+): PlaybackControl {
   const output = getOutputPort(deviceId);
-  if (!output) return () => {};
+  if (!output) return { cancel: () => {}, seek: () => {} };
 
   const sMs = stepDurationMs(bpm);
   const totalSteps = Math.max(16, ...tracks.map((t) => t.pattern.bars * STEPS_PER_BAR));
@@ -279,14 +284,21 @@ export function playPatternLoopedWithCursor(
     );
   }
 
-  return () => {
-    cancelled = true;
-    if (worker) {
-      worker.postMessage({ type: "stop" });
-      worker.onmessage = null;
-    }
-    if (fallbackInterval !== null) clearInterval(fallbackInterval);
-    wakeLock?.release();
-    sendAllNotesOff(deviceId);
+  return {
+    cancel: () => {
+      cancelled = true;
+      if (worker) {
+        worker.postMessage({ type: "stop" });
+        worker.onmessage = null;
+      }
+      if (fallbackInterval !== null) clearInterval(fallbackInterval);
+      wakeLock?.release();
+      sendAllNotesOff(deviceId);
+    },
+    seek: (step: number) => {
+      currentStep = step;
+      sendAllNotesOff(deviceId); // silence current notes before jumping
+      onStep(step);
+    },
   };
 }

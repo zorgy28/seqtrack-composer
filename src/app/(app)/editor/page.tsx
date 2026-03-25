@@ -20,7 +20,8 @@ export default function EditorPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentStep, setCurrentStep] = useState<number | null>(null);
-  const cancelPlayRef = useRef<(() => void) | null>(null);
+  const [totalSteps, setTotalSteps] = useState(16);
+  const playbackRef = useRef<{ cancel: () => void; seek: (step: number) => void } | null>(null);
 
   // Live ref to project so the player can read current state each tick
   const projectRef = useRef(project);
@@ -37,8 +38,8 @@ export default function EditorPage() {
 
   const handleTogglePlay = useCallback(async () => {
     if (isPlaying) {
-      cancelPlayRef.current?.();
-      cancelPlayRef.current = null;
+      playbackRef.current?.cancel();
+      playbackRef.current = null;
       setIsPlaying(false);
       setCurrentStep(null);
       return;
@@ -48,7 +49,6 @@ export default function EditorPage() {
 
     const { playPatternLoopedWithCursor } = await import("@/lib/webmidi/midi-sender");
 
-    // Initial tracks for total steps calculation
     const initialTracks: Array<{ pattern: { bars: number; notes: Array<{ pitch: number; velocity: number; step: number; duration: number; probability: number }>; name: string; swing: number }; channel: SeqtrackChannel }> = [];
 
     for (const ch of ALL_CHANNELS) {
@@ -61,13 +61,15 @@ export default function EditorPage() {
 
     if (initialTracks.length === 0) return;
 
+    const maxSteps = Math.max(16, ...initialTracks.map((t) => t.pattern.bars * 16));
+    setTotalSteps(maxSteps);
     setIsPlaying(true);
-    const cancel = playPatternLoopedWithCursor(
+
+    const control = playPatternLoopedWithCursor(
       device.id,
       initialTracks,
       project.bpm,
       (step) => setCurrentStep(step),
-      // Live state getter — called every tick for real-time mute/edit
       () => {
         const p = projectRef.current;
         const liveTracks = ALL_CHANNELS.map((ch) => {
@@ -78,7 +80,7 @@ export default function EditorPage() {
         return { tracks: liveTracks, bpm: p.bpm };
       },
     );
-    cancelPlayRef.current = cancel;
+    playbackRef.current = control;
   }, [device, project, isPlaying]);
 
   return (
@@ -153,6 +155,29 @@ export default function EditorPage() {
           </Button>
         )}
       </div>
+
+      {/* Transport scrubber — visible during playback */}
+      {isPlaying && currentStep !== null && (
+        <div className="flex items-center gap-2 px-3 py-1 border-b border-border bg-card/50 shrink-0">
+          <span className="text-[10px] font-mono text-muted-foreground w-12">
+            {Math.floor(currentStep / 16) + 1}:{(currentStep % 16) + 1}
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={totalSteps - 1}
+            value={currentStep}
+            onChange={(e) => {
+              const step = Number(e.target.value);
+              playbackRef.current?.seek(step);
+            }}
+            className="flex-1 h-1.5 accent-primary cursor-pointer"
+          />
+          <span className="text-[10px] font-mono text-muted-foreground w-8 text-right">
+            {totalSteps}
+          </span>
+        </div>
+      )}
 
       {/* Step Grid */}
       <div className="flex-1 overflow-auto p-3 pb-20">

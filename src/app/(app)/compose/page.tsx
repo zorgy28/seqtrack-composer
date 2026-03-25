@@ -137,13 +137,13 @@ export default function ComposePage() {
     if (tracks.length === 0) return;
 
     setIsPlaying(true);
-    const cancel = playPatternLoopedWithCursor(
+    const control = playPatternLoopedWithCursor(
       device.id,
       tracks,
       result.bpm ?? project.bpm,
       (step) => setCurrentStep(step),
     );
-    cancelPreviewRef.current = cancel;
+    cancelPreviewRef.current = control.cancel;
   }, [isPlaying, device, result, project.bpm, stopPreview]);
 
   // ── Apply ──────────────────────────────────────────────────────
