@@ -112,7 +112,7 @@ export function SoundPicker({ channel, onClose }: SoundPickerProps) {
     return (
       <div
         ref={containerRef}
-        className="w-72 bg-popover border border-border rounded-lg shadow-xl z-50 overflow-hidden"
+        className="w-96 bg-popover border border-border rounded-lg shadow-xl z-50 overflow-hidden"
       >
         <div className="px-3 py-4 text-xs text-muted-foreground text-center">
           No presets available for this channel.
@@ -126,7 +126,7 @@ export function SoundPicker({ channel, onClose }: SoundPickerProps) {
   return (
     <div
       ref={containerRef}
-      className="w-72 max-h-[400px] bg-popover border border-border rounded-lg shadow-xl z-50 overflow-hidden flex flex-col"
+      className="w-96 max-h-[400px] bg-popover border border-border rounded-lg shadow-xl z-50 overflow-hidden flex flex-col"
     >
       {/* A. AI Suggestion banner */}
       {suggestedPreset && (
@@ -199,7 +199,15 @@ export function SoundPicker({ channel, onClose }: SoundPickerProps) {
       </div>
 
       {/* D. Preset list (scrollable) */}
-      <div className="max-h-[250px] overflow-y-auto">
+      <div className="max-h-[300px] overflow-y-auto" ref={(el) => {
+        // Auto-scroll to current preset on open
+        if (el && currentPreset) {
+          requestAnimationFrame(() => {
+            const active = el.querySelector("[data-active-preset]");
+            active?.scrollIntoView({ block: "center" });
+          });
+        }
+      }}>
         {filteredPresets.length === 0 ? (
           <div className="px-3 py-4 text-xs text-muted-foreground text-center">
             No matching sounds found.
@@ -211,6 +219,7 @@ export function SoundPicker({ channel, onClose }: SoundPickerProps) {
             return (
               <button
                 key={preset.id}
+                data-active-preset={isCurrent ? "true" : undefined}
                 onClick={() => handleSelectPreset(preset)}
                 className={cn(
                   "flex items-center justify-between w-full px-3 py-1.5 text-xs transition-colors",

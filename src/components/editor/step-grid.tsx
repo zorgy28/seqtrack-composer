@@ -10,6 +10,7 @@ import { getScaleNotes, midiToNoteName } from "@/lib/midi/note-utils";
 import type { SeqtrackChannel, Note, Pattern } from "@/lib/midi/types";
 import { cn } from "@/lib/utils";
 import { SoundPicker } from "./sound-picker";
+import { getPresetsForChannel } from "@/lib/midi/sound-library";
 
 // ─── Color Maps ────────────────────────────────────────────────
 
@@ -83,7 +84,12 @@ function TrackHeader({
   const dotColor = TRACK_BG[info.color] ?? "bg-gray-500";
   const trackColor = TRACK_BG_ACTIVE[info.color] ?? "bg-gray-500/80";
   const currentPreset = getTrackSound(channel).preset;
-  const soundDisplayName = currentPreset?.name ?? "—";
+  const soundDisplayName = useMemo(() => {
+    if (currentPreset) return currentPreset.name;
+    // Show first preset name for this channel as default
+    const presets = getPresetsForChannel(channel);
+    return presets[0]?.name ?? "—";
+  }, [currentPreset, channel]);
 
   const toggleMute = () => {
     const updatedTrack = { ...track, muted: !track.muted };
