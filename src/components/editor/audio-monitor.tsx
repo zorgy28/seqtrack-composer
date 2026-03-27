@@ -344,6 +344,16 @@ export function AudioMonitor({ className }: AudioMonitorProps) {
   const [expanded, setExpanded] = useState(false);
   const [volume, setVolumeState] = useState(100);
 
+  // Auto-start capture + monitoring when expanding (saves 3 clicks)
+  const handleExpand = useCallback(async () => {
+    setExpanded(true);
+    if (!isCapturing) {
+      await startCapture(selectedDeviceId ?? undefined);
+      // Enable speaker monitoring by default
+      toggleMonitoring();
+    }
+  }, [isCapturing, startCapture, selectedDeviceId, toggleMonitoring]);
+
   const handleVolumeChange = useCallback(
     (values: number[]) => {
       const v = values[0];
@@ -381,7 +391,7 @@ export function AudioMonitor({ className }: AudioMonitorProps) {
           "flex items-center gap-2 px-3 py-1.5 border-t border-border bg-muted/30 cursor-pointer select-none",
           className,
         )}
-        onClick={() => setExpanded(true)}
+        onClick={handleExpand}
       >
         <Volume2 className="size-3.5 text-muted-foreground" />
         <span className="text-xs text-muted-foreground font-medium">
