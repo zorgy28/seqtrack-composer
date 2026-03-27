@@ -111,57 +111,7 @@ export function TransportProvider({ children }: { children: ReactNode }) {
     playbackRef.current?.seek(step);
   }, []);
 
-  const armRecord = useCallback(async () => {
-    const dev = deviceRef.current;
-    if (!dev) return;
-    const { RecordingEngine } = await import("@/lib/recording/recording-engine");
-    const engine = new RecordingEngine({
-      onStatusChange: (s) => setRecordState(s),
-      onMidiEvent: () => setRecordingMidiCount((c) => c + 1),
-    });
-    const p = projectRef.current;
-    await engine.arm({
-      midiDeviceId: dev.id,
-      projectId: p.id,
-      bpm: p.bpm,
-      name: `Recording ${new Date().toLocaleString()}`,
-    });
-    engineRef.current = engine;
-  }, []);
-
-  const startRecord = useCallback(async (audioStream?: MediaStream) => {
-    const engine = engineRef.current;
-    if (!engine) return;
-    await engine.start(audioStream);
-    // Start elapsed timer
-    timerRef.current = setInterval(() => {
-      setRecordingElapsedMs(engine.getElapsedMs());
-      setRecordingMidiCount(engine.getMidiEventCount());
-    }, 100);
-    // Also start playback
-    await play();
-  }, [play]);
-
-  const stopRecord = useCallback(async () => {
-    // Stop timer
-    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-    // Stop playback
-    stop();
-    const engine = engineRef.current;
-    if (!engine) return null;
-    const session = await engine.stop();
-    const audioBlob = engine.getAudioBlob();
-    // Save to IndexedDB
-    const { saveRecordingSessionWithAudio } = await import("@/lib/storage/indexed-db");
-    await saveRecordingSessionWithAudio(session, audioBlob);
-    engineRef.current = null;
-    setRecordState("idle");
-    setRecordingElapsedMs(0);
-    setRecordingMidiCount(0);
-    return session.id;
-  }, [stop]);
-
-  const discardRecord = useCallback(() => {
+  const resetRecordingState = useCallback(() => {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     engineRef.current?.dispose();
     engineRef.current = null;
@@ -169,6 +119,76 @@ export function TransportProvider({ children }: { children: ReactNode }) {
     setRecordingElapsedMs(0);
     setRecordingMidiCount(0);
   }, []);
+
+  const armRecord = useCallback(async () => {
+    const dev = deviceRef.current;
+    if (!dev) return;
+    try {
+      const { RecordingEngine } = await import("@/lib/recording/recording-engine");
+      const engine = new RecordingEngine({
+        onStatusChange: (s) => setRecordState(s),
+        onMidiEvent: () => setRecordingMidiCount((c) => c + 1),
+      });
+      const p = projectRef.current;
+      await engine.arm({
+        midiDeviceId: dev.id,
+        projectId: p.id,
+        bpm: p.bpm,
+        name: `Recording ${new Date().toLocaleString()}`,
+      });
+      engineRef.current = engine;
+    } catch (err) {
+      console.error("[Transport] Failed to arm recording:", err);
+      resetRecordingState();
+    }
+  }, [resetRecordingState]);
+
+  const startRecord = useCallback(async (audioStream?: MediaStream) => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    try {
+      await engine.start(audioStream);
+      // Start elapsed timer
+      timerRef.current = setInterval(() => {
+        setRecordingElapsedMs(engine.getElapsedMs());
+        setRecordingMidiCount(engine.getMidiEventCount());
+      }, 100);
+      // Also start playback
+      await play();
+    } catch (err) {
+      console.error("[Transport] Failed to start recording:", err);
+      resetRecordingState();
+    }
+  }, [play, resetRecordingState]);
+
+  const stopRecord = useCallback(async () => {
+    // Stop timer
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    // Stop playback
+    stop();
+    const engine = engineRef.current;
+    if (!engine) { resetRecordingState(); return null; }
+    try {
+      const session = await engine.stop();
+      const audioBlob = engine.getAudioBlob();
+      // Save to IndexedDB
+      const { saveRecordingSessionWithAudio } = await import("@/lib/storage/indexed-db");
+      await saveRecordingSessionWithAudio(session, audioBlob);
+      engineRef.current = null;
+      setRecordState("idle");
+      setRecordingElapsedMs(0);
+      setRecordingMidiCount(0);
+      return session.id;
+    } catch (err) {
+      console.error("[Transport] Failed to stop/save recording:", err);
+      resetRecordingState();
+      return null;
+    }
+  }, [stop, resetRecordingState]);
+
+  const discardRecord = useCallback(() => {
+    resetRecordingState();
+  }, [resetRecordingState]);
 
   // Cleanup on unmount (app close)
   useEffect(() => {
