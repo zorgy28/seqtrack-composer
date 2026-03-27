@@ -22,6 +22,7 @@ export interface UseAudioMonitorReturn {
   toggleMonitoring: () => void;
   setVolume: (vol: number) => void;
   getAnalyser: () => AnalyserNode | null;
+  getStream: () => MediaStream | null;
 }
 
 export function useAudioMonitor(): UseAudioMonitorReturn {
@@ -192,6 +193,10 @@ export function useAudioMonitor(): UseAudioMonitorReturn {
     return stateRef.current?.analyser ?? null;
   }, []);
 
+  const getStream = useCallback((): MediaStream | null => {
+    return stateRef.current?.stream ?? null;
+  }, []);
+
   // Resume AudioContext and level loop when tab becomes visible again
   useEffect(() => {
     function handleVisibilityChange() {
@@ -238,5 +243,6 @@ export function useAudioMonitor(): UseAudioMonitorReturn {
     toggleMonitoring,
     setVolume,
     getAnalyser,
+    getStream,
   };
 }

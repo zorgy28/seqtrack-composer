@@ -68,6 +68,21 @@ export type DrumStyle =
   | "dnb"
   | "hiphop";
 
+export type FullStyle =
+  | DrumStyle
+  | "blues_shuffle"
+  | "funk"
+  | "reggae"
+  | "bossa_nova"
+  | "afrobeat"
+  | "disco"
+  | "triphop"
+  | "lofi"
+  | "latin_salsa"
+  | "ambient"
+  | "classic_rock"
+  | "jazz";
+
 export interface CompositionRequest {
   prompt: string;
   bpm?: number;

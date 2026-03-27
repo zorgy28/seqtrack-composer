@@ -1,4 +1,4 @@
-import type { SeqtrackChannel, SeqtrackTrackInfo, DrumStyle } from "./types";
+import type { SeqtrackChannel, SeqtrackTrackInfo, DrumStyle, FullStyle } from "./types";
 
 export const SEQTRAK_TRACKS: Record<SeqtrackChannel, SeqtrackTrackInfo> = {
   1: { name: "Kick", type: "drum", color: "red", channel: 1 },
@@ -61,6 +61,34 @@ export const FLAT_TO_SHARP: Record<string, string> = {
 export const DRUM_STYLES: DrumStyle[] = [
   "basic_4x4", "breakbeat", "trap", "house", "techno", "dnb", "hiphop",
 ];
+
+export const FULL_STYLES: FullStyle[] = [
+  "basic_4x4", "breakbeat", "trap", "house", "techno", "dnb", "hiphop",
+  "blues_shuffle", "funk", "reggae", "bossa_nova", "afrobeat", "disco",
+  "triphop", "lofi", "latin_salsa", "ambient", "classic_rock", "jazz",
+];
+
+export const STYLE_INFO: Record<FullStyle, { name: string; bpm: number; description: string; category: string }> = {
+  basic_4x4: { name: "Basic 4/4", bpm: 120, description: "Standard four-on-the-floor beat", category: "Drums Only" },
+  breakbeat: { name: "Breakbeat", bpm: 130, description: "Syncopated break pattern", category: "Drums Only" },
+  trap: { name: "Trap", bpm: 140, description: "808 kick with rapid hi-hats", category: "Electronic" },
+  house: { name: "House", bpm: 124, description: "Four-on-the-floor with offbeat hats", category: "Electronic" },
+  techno: { name: "Techno", bpm: 130, description: "Driving mechanical rhythm", category: "Electronic" },
+  dnb: { name: "Drum & Bass", bpm: 174, description: "Fast breakbeat with heavy bass", category: "Electronic" },
+  hiphop: { name: "Hip Hop", bpm: 90, description: "Boom bap groove", category: "Hip Hop" },
+  blues_shuffle: { name: "Blues Shuffle", bpm: 75, description: "12-bar shuffle with walking bass", category: "Classics" },
+  funk: { name: "Funk", bpm: 110, description: "Syncopated groove with ghost notes", category: "Classics" },
+  reggae: { name: "Reggae", bpm: 80, description: "One-drop with dub bass and skank organ", category: "World" },
+  bossa_nova: { name: "Bossa Nova", bpm: 130, description: "Brazilian rhythm with nylon guitar", category: "World" },
+  afrobeat: { name: "Afrobeat", bpm: 115, description: "Polyrhythmic with horn melodies", category: "World" },
+  disco: { name: "Disco", bpm: 120, description: "Four-on-the-floor with octave bass", category: "Classics" },
+  triphop: { name: "Trip-Hop", bpm: 85, description: "Sparse breakbeat with dark sub bass", category: "Atmospheric" },
+  lofi: { name: "Lo-fi", bpm: 78, description: "Lazy drums with jazzy piano chords", category: "Hip Hop" },
+  latin_salsa: { name: "Latin Salsa", bpm: 180, description: "Clave-synced with piano montuno", category: "World" },
+  ambient: { name: "Ambient", bpm: 70, description: "Minimal percussion with evolving pads", category: "Atmospheric" },
+  classic_rock: { name: "Classic Rock", bpm: 130, description: "Driving beat with power bass and organ", category: "Classics" },
+  jazz: { name: "Jazz", bpm: 120, description: "Swing ride pattern with walking bass", category: "Classics" },
+};
 
 export const QUANTIZE_OPTIONS: Record<string, number> = {
   "1/32": TICKS_PER_BEAT / 8,

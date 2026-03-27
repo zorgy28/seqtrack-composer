@@ -5,9 +5,9 @@ import { Sparkles, FileMusic } from "lucide-react";
 import { StepGrid } from "@/components/editor/step-grid";
 import { useProject } from "@/providers/project-provider";
 import { useTransport } from "@/providers/transport-provider";
-import { applyDrumPatternToProject, createEmptyProject } from "@/lib/midi/pattern-generators";
-import { DRUM_STYLES } from "@/lib/midi/constants";
-import type { DrumStyle } from "@/lib/midi/types";
+import { applyFullPresetToProject, createEmptyProject } from "@/lib/midi/pattern-generators";
+import { STYLE_INFO } from "@/lib/midi/constants";
+import type { FullStyle } from "@/lib/midi/types";
 import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
 
@@ -20,15 +20,25 @@ const ImportDialog = dynamic(
   { ssr: false },
 );
 
+const PRESET_GROUPS: Array<{ label: string; styles: FullStyle[] }> = [
+  { label: "Drums", styles: ["basic_4x4", "breakbeat"] },
+  { label: "Electronic", styles: ["house", "techno", "trap", "dnb"] },
+  { label: "Hip Hop", styles: ["hiphop", "lofi", "triphop"] },
+  { label: "World", styles: ["reggae", "bossa_nova", "afrobeat", "latin_salsa"] },
+  { label: "Classics", styles: ["blues_shuffle", "funk", "disco", "jazz", "classic_rock"] },
+  { label: "Atmospheric", styles: ["ambient"] },
+];
+
 export default function EditorPage() {
   const { project, setProject } = useProject();
   const { currentStep } = useTransport();
   const [enhanceOpen, setEnhanceOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
 
-  const handleGenerateDrum = useCallback((style: DrumStyle) => {
-    const updated = applyDrumPatternToProject(project, style, 1);
-    setProject(updated);
+  const handleApplyPreset = useCallback((style: FullStyle) => {
+    const info = STYLE_INFO[style];
+    const updated = applyFullPresetToProject(project, style, 1);
+    setProject({ ...updated, bpm: info.bpm });
   }, [project, setProject]);
 
   const handleClearAll = useCallback(() => {
@@ -38,63 +48,73 @@ export default function EditorPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="flex items-center gap-2 p-3 border-b border-border flex-wrap">
-        <span className="text-sm font-medium">Presets:</span>
-        <div className="flex gap-1 flex-wrap">
-          {DRUM_STYLES.map((style) => (
-            <Button
-              key={style}
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs font-mono"
-              onClick={() => handleGenerateDrum(style)}
-            >
-              {style.replace("_", " ")}
-            </Button>
+      <div className="flex flex-col gap-2 p-3 border-b border-border">
+        {/* Preset groups */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {PRESET_GROUPS.map((group) => (
+            <div key={group.label} className="flex items-center gap-1">
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+                {group.label}
+              </span>
+              {group.styles.map((style) => (
+                <Button
+                  key={style}
+                  variant="outline"
+                  size="sm"
+                  className="h-6 text-[10px] px-1.5 font-mono"
+                  onClick={() => handleApplyPreset(style)}
+                >
+                  {STYLE_INFO[style].name}
+                </Button>
+              ))}
+            </div>
           ))}
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 text-xs"
-          onClick={() => setEnhanceOpen(true)}
-        >
-          <Sparkles className="w-3 h-3 mr-1" />
-          Enhance
-        </Button>
+        {/* Actions row */}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => setEnhanceOpen(true)}
+          >
+            <Sparkles className="w-3 h-3 mr-1" />
+            Enhance
+          </Button>
 
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 text-xs"
-          onClick={() => setImportOpen(true)}
-        >
-          <FileMusic className="w-3 h-3 mr-1" />
-          Import
-        </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => setImportOpen(true)}
+          >
+            <FileMusic className="w-3 h-3 mr-1" />
+            Import
+          </Button>
 
-        <div className="flex-1" />
+          <div className="flex-1" />
 
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 text-xs"
-          onClick={handleClearAll}
-        >
-          Clear
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 text-xs"
-          onClick={async () => {
-            const { downloadMidi } = await import("@/lib/midi/midi-export");
-            downloadMidi(project);
-          }}
-        >
-          Export .mid
-        </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={handleClearAll}
+          >
+            Clear
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={async () => {
+              const { downloadMidi } = await import("@/lib/midi/midi-export");
+              downloadMidi(project);
+            }}
+          >
+            Export .mid
+          </Button>
+        </div>
       </div>
 
       {/* Step Grid */}

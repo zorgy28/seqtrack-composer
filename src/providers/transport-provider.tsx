@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import type { ReactNode } from "react";
 import type { SeqtrackChannel } from "@/lib/midi/types";
+import type { RecordingStatus } from "@/lib/recording/types";
 import { ALL_CHANNELS, STEPS_PER_BAR } from "@/lib/midi/constants";
 import { useProject } from "@/providers/project-provider";
 import { useMidiConnection } from "@/hooks/use-midi-connection";
@@ -11,12 +12,19 @@ export interface TransportState {
   isPlaying: boolean;
   currentStep: number | null;
   totalSteps: number;
+  recordState: RecordingStatus;
+  recordingElapsedMs: number;
+  recordingMidiCount: number;
 }
 
 export interface TransportControls {
   play: () => Promise<void>;
   stop: () => void;
   seek: (step: number) => void;
+  armRecord: () => Promise<void>;
+  startRecord: (audioStream?: MediaStream) => Promise<void>;
+  stopRecord: () => Promise<string | null>;
+  discardRecord: () => void;
 }
 
 type TransportContextValue = TransportState & TransportControls;
@@ -29,7 +37,12 @@ export function TransportProvider({ children }: { children: ReactNode }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentStep, setCurrentStep] = useState<number | null>(null);
   const [totalSteps, setTotalSteps] = useState(16);
+  const [recordState, setRecordState] = useState<RecordingStatus>("idle");
+  const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
+  const [recordingMidiCount, setRecordingMidiCount] = useState(0);
   const playbackRef = useRef<{ cancel: () => void; seek: (step: number) => void } | null>(null);
+  const engineRef = useRef<import("@/lib/recording/recording-engine").RecordingEngine | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Live ref to project so the tick callback reads current state
   const projectRef = useRef(project);
@@ -98,9 +111,70 @@ export function TransportProvider({ children }: { children: ReactNode }) {
     playbackRef.current?.seek(step);
   }, []);
 
+  const armRecord = useCallback(async () => {
+    const dev = deviceRef.current;
+    if (!dev) return;
+    const { RecordingEngine } = await import("@/lib/recording/recording-engine");
+    const engine = new RecordingEngine({
+      onStatusChange: (s) => setRecordState(s),
+      onMidiEvent: () => setRecordingMidiCount((c) => c + 1),
+    });
+    const p = projectRef.current;
+    await engine.arm({
+      midiDeviceId: dev.id,
+      projectId: p.id,
+      bpm: p.bpm,
+      name: `Recording ${new Date().toLocaleString()}`,
+    });
+    engineRef.current = engine;
+  }, []);
+
+  const startRecord = useCallback(async (audioStream?: MediaStream) => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    await engine.start(audioStream);
+    // Start elapsed timer
+    timerRef.current = setInterval(() => {
+      setRecordingElapsedMs(engine.getElapsedMs());
+      setRecordingMidiCount(engine.getMidiEventCount());
+    }, 100);
+    // Also start playback
+    await play();
+  }, [play]);
+
+  const stopRecord = useCallback(async () => {
+    // Stop timer
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    // Stop playback
+    stop();
+    const engine = engineRef.current;
+    if (!engine) return null;
+    const session = await engine.stop();
+    const audioBlob = engine.getAudioBlob();
+    // Save to IndexedDB
+    const { saveRecordingSessionWithAudio } = await import("@/lib/storage/indexed-db");
+    await saveRecordingSessionWithAudio(session, audioBlob);
+    engineRef.current = null;
+    setRecordingElapsedMs(0);
+    setRecordingMidiCount(0);
+    return session.id;
+  }, [stop]);
+
+  const discardRecord = useCallback(() => {
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    engineRef.current?.dispose();
+    engineRef.current = null;
+    setRecordState("idle");
+    setRecordingElapsedMs(0);
+    setRecordingMidiCount(0);
+  }, []);
+
   // Cleanup on unmount (app close)
   useEffect(() => {
     return () => {
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+      engineRef.current?.dispose();
+      engineRef.current = null;
       playbackRef.current?.cancel();
       playbackRef.current = null;
     };
@@ -108,7 +182,21 @@ export function TransportProvider({ children }: { children: ReactNode }) {
 
   return (
     <TransportContext.Provider
-      value={{ isPlaying, currentStep, totalSteps, play, stop, seek }}
+      value={{
+        isPlaying,
+        currentStep,
+        totalSteps,
+        recordState,
+        recordingElapsedMs,
+        recordingMidiCount,
+        play,
+        stop,
+        seek,
+        armRecord,
+        startRecord,
+        stopRecord,
+        discardRecord,
+      }}
     >
       {children}
     </TransportContext.Provider>

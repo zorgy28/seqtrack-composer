@@ -3,12 +3,15 @@
 // ---------------------------------------------------------------------------
 
 import type { Project } from "@/lib/midi/types";
+import type { RecordingSession, RecordingSessionMeta } from "@/lib/recording/types";
 
 const DB_NAME = "seqtrack-composer";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 const STORE_PROJECTS = "projects";
 const STORE_SETTINGS = "settings";
+const STORE_RECORDING_SESSIONS = "recording-sessions";
+const STORE_RECORDING_AUDIO = "recording-audio";
 
 // ---------------------------------------------------------------------------
 // Database lifecycle
@@ -27,13 +30,36 @@ function openDB(): Promise<IDBDatabase> {
 
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
       const db = request.result;
-      if (!db.objectStoreNames.contains(STORE_PROJECTS)) {
-        db.createObjectStore(STORE_PROJECTS, { keyPath: "id" });
+      const oldVersion = event.oldVersion;
+
+      // Version 0 → 1: original stores
+      if (oldVersion < 1) {
+        if (!db.objectStoreNames.contains(STORE_PROJECTS)) {
+          db.createObjectStore(STORE_PROJECTS, { keyPath: "id" });
+        }
+        if (!db.objectStoreNames.contains(STORE_SETTINGS)) {
+          db.createObjectStore(STORE_SETTINGS, { keyPath: "key" });
+        }
       }
-      if (!db.objectStoreNames.contains(STORE_SETTINGS)) {
-        db.createObjectStore(STORE_SETTINGS, { keyPath: "key" });
+
+      // Version 1 → 2: recording stores
+      if (oldVersion < 2) {
+        if (!db.objectStoreNames.contains(STORE_RECORDING_SESSIONS)) {
+          const sessionStore = db.createObjectStore(STORE_RECORDING_SESSIONS, {
+            keyPath: "id",
+          });
+          sessionStore.createIndex("by-project", "projectId", {
+            unique: false,
+          });
+          sessionStore.createIndex("by-date", "createdAt", { unique: false });
+        }
+        if (!db.objectStoreNames.contains(STORE_RECORDING_AUDIO)) {
+          db.createObjectStore(STORE_RECORDING_AUDIO, {
+            keyPath: "sessionId",
+          });
+        }
       }
     };
 
@@ -58,6 +84,15 @@ function tx(
   return openDB().then((db) => {
     const transaction = db.transaction(storeName, mode);
     return transaction.objectStore(storeName);
+  });
+}
+
+function txMulti(
+  storeNames: string[],
+  mode: IDBTransactionMode,
+): Promise<IDBTransaction> {
+  return openDB().then((db) => {
+    return db.transaction(storeNames, mode);
   });
 }
 
@@ -115,6 +150,151 @@ export async function loadSetting(key: string): Promise<unknown | null> {
 export async function deleteSetting(key: string): Promise<void> {
   const store = await tx(STORE_SETTINGS, "readwrite");
   await idbRequest(store.delete(key));
+}
+
+// ---------------------------------------------------------------------------
+// Recording session operations
+// ---------------------------------------------------------------------------
+
+/**
+ * Save a recording session (metadata + MIDI events).
+ * Audio blob is stored separately via saveRecordingAudio().
+ */
+export async function saveRecordingSession(
+  session: RecordingSession,
+): Promise<void> {
+  const store = await tx(STORE_RECORDING_SESSIONS, "readwrite");
+  await idbRequest(store.put(session));
+}
+
+/**
+ * Save audio blob for a recording session (stored separately for efficiency).
+ */
+export async function saveRecordingAudio(
+  sessionId: string,
+  blob: Blob,
+): Promise<void> {
+  const store = await tx(STORE_RECORDING_AUDIO, "readwrite");
+  await idbRequest(store.put({ sessionId, blob }));
+}
+
+/**
+ * Save both session data and audio blob in a single call.
+ */
+export async function saveRecordingSessionWithAudio(
+  session: RecordingSession,
+  audioBlob: Blob | null,
+): Promise<void> {
+  await saveRecordingSession(session);
+  if (audioBlob) {
+    await saveRecordingAudio(session.id, audioBlob);
+  }
+}
+
+/**
+ * Load a recording session (metadata + MIDI events, no audio blob).
+ */
+export async function loadRecordingSession(
+  id: string,
+): Promise<RecordingSession | null> {
+  const store = await tx(STORE_RECORDING_SESSIONS, "readonly");
+  const result = await idbRequest(store.get(id));
+  return (result as RecordingSession) ?? null;
+}
+
+/**
+ * Load the audio blob for a recording session.
+ */
+export async function loadRecordingAudio(
+  sessionId: string,
+): Promise<Blob | null> {
+  const store = await tx(STORE_RECORDING_AUDIO, "readonly");
+  const result = await idbRequest(store.get(sessionId));
+  return result ? (result as { sessionId: string; blob: Blob }).blob : null;
+}
+
+/**
+ * List all recording sessions for a project (metadata only — no MIDI events or audio).
+ * Returns sessions sorted by creation date, newest first.
+ */
+export async function listRecordingSessions(
+  projectId?: string,
+): Promise<RecordingSessionMeta[]> {
+  const store = await tx(STORE_RECORDING_SESSIONS, "readonly");
+
+  const results: RecordingSessionMeta[] = [];
+
+  if (projectId) {
+    const index = store.index("by-project");
+    const all = await idbRequest(index.getAll(projectId));
+    for (const record of all as RecordingSession[]) {
+      results.push(sessionToMeta(record));
+    }
+  } else {
+    const all = await idbRequest(store.getAll());
+    for (const record of all as RecordingSession[]) {
+      results.push(sessionToMeta(record));
+    }
+  }
+
+  // Sort newest first
+  results.sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+
+  return results;
+}
+
+/**
+ * Delete a recording session and its audio blob.
+ */
+export async function deleteRecordingSession(id: string): Promise<void> {
+  const transaction = await txMulti(
+    [STORE_RECORDING_SESSIONS, STORE_RECORDING_AUDIO],
+    "readwrite",
+  );
+  const sessionStore = transaction.objectStore(STORE_RECORDING_SESSIONS);
+  const audioStore = transaction.objectStore(STORE_RECORDING_AUDIO);
+
+  sessionStore.delete(id);
+  audioStore.delete(id);
+
+  await new Promise<void>((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+}
+
+/**
+ * Update session metadata (name, markers, etc.) without replacing MIDI events.
+ */
+export async function updateRecordingSession(
+  id: string,
+  patch: Partial<RecordingSessionMeta>,
+): Promise<void> {
+  const store = await tx(STORE_RECORDING_SESSIONS, "readwrite");
+  const existing = await idbRequest(store.get(id));
+  if (!existing) return;
+  await idbRequest(store.put({ ...existing, ...patch, id }));
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function sessionToMeta(session: RecordingSession): RecordingSessionMeta {
+  return {
+    id: session.id,
+    projectId: session.projectId,
+    name: session.name,
+    createdAt: session.createdAt,
+    durationMs: session.durationMs,
+    bpm: session.bpm,
+    midiEventCount: session.midiEventCount,
+    hasAudio: session.hasAudio,
+    audioFormat: session.audioFormat,
+    audioBlobSize: session.audioBlobSize,
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -1,18 +1,49 @@
 "use client";
 
-import { Play, Square, SkipBack } from "lucide-react";
+import { Play, Square, SkipBack, Circle } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useTransport } from "@/providers/transport-provider";
 import { useMidiConnection } from "@/hooks/use-midi-connection";
 import { Button } from "@/components/ui/button";
 
 export function TransportBar() {
-  const { isPlaying, currentStep, totalSteps, play, stop, seek } = useTransport();
+  const { isPlaying, currentStep, totalSteps, play, stop, seek, recordState, recordingElapsedMs, armRecord, startRecord, stopRecord, discardRecord } = useTransport();
   const { device } = useMidiConnection();
 
   if (!device) return null;
 
   return (
     <div className="flex items-center gap-2 px-3 py-1 border-t border-border bg-card/50 shrink-0">
+      {/* Record button */}
+      <Button
+        size="icon-xs"
+        variant="ghost"
+        className={cn(
+          "h-6 w-6",
+          recordState === "armed" && "animate-pulse",
+          recordState === "recording" && "bg-red-600 hover:bg-red-700 text-white",
+        )}
+        onClick={
+          recordState === "idle"
+            ? armRecord
+            : recordState === "armed"
+              ? () => startRecord()
+              : recordState === "recording"
+                ? stopRecord
+                : undefined
+        }
+        disabled={recordState === "stopping"}
+      >
+        <Circle
+          className={cn(
+            "size-3",
+            recordState === "idle" && "text-red-500",
+            recordState === "armed" && "text-red-500 fill-red-500",
+            recordState === "recording" && "fill-white text-white",
+          )}
+        />
+      </Button>
+
       {/* Play / Stop */}
       <Button
         size="icon-xs"
@@ -35,8 +66,15 @@ export function TransportBar() {
         </Button>
       )}
 
-      {/* Step position */}
-      {isPlaying && currentStep !== null ? (
+      {/* Step position / Recording timer */}
+      {recordState === "recording" ? (
+        <>
+          <span className="text-[10px] font-mono text-red-500 font-bold">REC</span>
+          <span className="text-[10px] font-mono text-red-400">
+            {formatRecordingTime(recordingElapsedMs)}
+          </span>
+        </>
+      ) : isPlaying && currentStep !== null ? (
         <>
           <span className="text-[10px] font-mono text-muted-foreground w-10">
             {Math.floor(currentStep / 16) + 1}:{(currentStep % 16) + 1}
@@ -60,4 +98,12 @@ export function TransportBar() {
       )}
     </div>
   );
+}
+
+function formatRecordingTime(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  const tenths = Math.floor((ms % 1000) / 100);
+  return `${minutes}:${String(seconds).padStart(2, "0")}.${tenths}`;
 }

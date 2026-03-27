@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { href: "/editor", label: "Editor", icon: "[]" },
   { href: "/sounds", label: "Sounds", icon: "~*" },
   { href: "/perform", label: "Perform", icon: "##" },
+  { href: "/sessions", label: "Sessions", icon: "\u23FA" },
   { href: "/device", label: "Device", icon: "->" },
   { href: "/projects", label: "Projects", icon: "/." },
   { href: "/settings", label: "Settings", icon: "\u2699" },
