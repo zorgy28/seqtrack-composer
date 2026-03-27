@@ -155,6 +155,7 @@ export function TransportProvider({ children }: { children: ReactNode }) {
     const { saveRecordingSessionWithAudio } = await import("@/lib/storage/indexed-db");
     await saveRecordingSessionWithAudio(session, audioBlob);
     engineRef.current = null;
+    setRecordState("idle");
     setRecordingElapsedMs(0);
     setRecordingMidiCount(0);
     return session.id;

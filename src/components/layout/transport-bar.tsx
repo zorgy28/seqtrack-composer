@@ -24,12 +24,12 @@ export function TransportBar() {
           recordState === "recording" && "bg-red-600 hover:bg-red-700 text-white",
         )}
         onClick={
-          recordState === "idle"
-            ? armRecord
+          recordState === "recording"
+            ? stopRecord
             : recordState === "armed"
               ? () => startRecord()
-              : recordState === "recording"
-                ? stopRecord
+              : recordState === "idle" || recordState === "complete" || recordState === "error"
+                ? armRecord
                 : undefined
         }
         disabled={recordState === "stopping"}
@@ -37,7 +37,7 @@ export function TransportBar() {
         <Circle
           className={cn(
             "size-3",
-            recordState === "idle" && "text-red-500",
+            (recordState === "idle" || recordState === "complete" || recordState === "error") && "text-red-500",
             recordState === "armed" && "text-red-500 fill-red-500",
             recordState === "recording" && "fill-white text-white",
           )}
