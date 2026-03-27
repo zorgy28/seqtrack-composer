@@ -21,6 +21,7 @@ import type {
   PairedNote,
   TimelineSelection,
 } from "@/lib/recording/types";
+import { useMidiConnection } from "@/hooks/use-midi-connection";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -74,6 +75,9 @@ export function TimelineEditor({
   onSessionUpdate,
   onConvertToPattern,
 }: TimelineEditorProps) {
+  // ---- MIDI device --------------------------------------------------------
+  const { device } = useMidiConnection();
+
   // ---- State --------------------------------------------------------------
   const [pixelsPerSecond, setPixelsPerSecond] = useState(50);
   const [scrollOffsetMs, setScrollOffsetMs] = useState(0);
@@ -129,8 +133,8 @@ export function TimelineEditor({
   useEffect(() => {
     const player = playerRef.current;
     if (!player) return;
-    player.setMidiEvents(session.midiEvents, null);
-  }, [session.midiEvents]);
+    player.setMidiEvents(session.midiEvents, device?.id ?? null);
+  }, [session.midiEvents, device]);
 
   // Sync isPlaying state when playback ends.
   useEffect(() => {
