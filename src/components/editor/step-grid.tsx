@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useRef, useMemo, useCallback, memo } from "react";
+import { useState, useRef, useMemo, useCallback, memo, useEffect } from "react";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import { useProject } from "@/providers/project-provider";
+import { useTrack, useUpdatePattern, useSelectedChannel, useProjectMeta } from "@/stores/project-store";
 import { useSoundControl } from "@/hooks/use-sound-control";
 import { SEQTRAK_TRACKS, STEPS_PER_BAR, DRUM_CHANNELS, SYNTH_CHANNELS, getTrackBgActiveClass, getTrackSolidClass } from "@/lib/midi/constants";
 import { toggleNoteInPattern } from "@/lib/midi/pattern-generators";
@@ -61,12 +62,13 @@ const TrackHeader = memo(function TrackHeader({
 }: {
   channel: SeqtrackChannel;
 }) {
-  const { project, setProject, selectedChannel, setSelectedChannel } = useProject();
+  const track = useTrack(channel);
+  const { selectedChannel, setSelectedChannel } = useSelectedChannel();
+  const { setProject, project } = useProject();
   const { getTrackSound } = useSoundControl();
   const [pickerOpen, setPickerOpen] = useState(false);
   const nameRef = useRef<HTMLButtonElement>(null);
 
-  const track = project.tracks[channel];
   const info = SEQTRAK_TRACKS[channel];
   const dotColor = getTrackSolidClass(channel);
   const trackColor = getTrackBgActiveClass(channel);
@@ -241,6 +243,10 @@ function getHarmonyHint(
 
 // ─── PianoRollGrid ─────────────────────────────────────────────
 
+const ROW_HEIGHT = 20; // h-5 = 20px
+const VISIBLE_COUNT = 14; // 280px / 20px
+const BUFFER = 2; // extra rows above and below
+
 const PianoRollGrid = memo(function PianoRollGrid({
   scaleNotes,
   pattern,
@@ -272,6 +278,33 @@ const PianoRollGrid = memo(function PianoRollGrid({
     [scaleNotes],
   );
 
+  // Virtual scroll state
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+
+  const totalRows = displayNotes.length;
+
+  const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - BUFFER);
+  const endIdx = Math.min(totalRows, Math.floor(scrollTop / ROW_HEIGHT) + VISIBLE_COUNT + BUFFER);
+
+  const topSpacerHeight = startIdx * ROW_HEIGHT;
+  const bottomSpacerHeight = (totalRows - endIdx) * ROW_HEIGHT;
+
+  const visibleRows = displayNotes.slice(startIdx, endIdx);
+
+  const handleScroll = useCallback(() => {
+    if (scrollRef.current) {
+      setScrollTop(scrollRef.current.scrollTop);
+    }
+  }, []);
+
+  // Sync scroll state if displayNotes changes (e.g. octave shift)
+  useEffect(() => {
+    if (scrollRef.current) {
+      setScrollTop(scrollRef.current.scrollTop);
+    }
+  }, [displayNotes]);
+
   const handleGridClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const target = (e.target as HTMLElement).closest<HTMLElement>('[data-step]');
     if (!target) return;
@@ -282,10 +315,13 @@ const PianoRollGrid = memo(function PianoRollGrid({
 
   return (
     <div
+      ref={scrollRef}
       className="max-h-[280px] overflow-y-auto ml-[calc(6rem+1.5rem+3.5rem)] mr-0"
       onClick={handleGridClick}
+      onScroll={handleScroll}
     >
-      {displayNotes.map((pitch) => {
+      {topSpacerHeight > 0 && <div style={{ height: topSpacerHeight }} />}
+      {visibleRows.map((pitch) => {
         const isC = pitch % 12 === 0;
         return (
           <div
@@ -345,6 +381,7 @@ const PianoRollGrid = memo(function PianoRollGrid({
           </div>
         );
       })}
+      {bottomSpacerHeight > 0 && <div style={{ height: bottomSpacerHeight }} />}
     </div>
   );
 });
@@ -356,8 +393,9 @@ const DrumTrackRow = memo(function DrumTrackRow({
 }: {
   channel: SeqtrackChannel;
 }) {
-  const { project, updatePattern, selectedChannel } = useProject();
-  const track = project.tracks[channel];
+  const track = useTrack(channel);
+  const updatePattern = useUpdatePattern();
+  const { selectedChannel } = useSelectedChannel();
   const pattern = track.patterns[track.activePattern];
   const totalSteps = pattern.bars * STEPS_PER_BAR;
   const colorClass = getTrackBgActiveClass(channel);
@@ -421,8 +459,11 @@ const MelodicTrackRow = memo(function MelodicTrackRow({
 }: {
   channel: SeqtrackChannel;
 }) {
-  const { project, updatePattern, selectedChannel, setSelectedChannel } = useProject();
-  const track = project.tracks[channel];
+  const track = useTrack(channel);
+  const updatePattern = useUpdatePattern();
+  const { selectedChannel, setSelectedChannel } = useSelectedChannel();
+  const meta = useProjectMeta();
+  const { project } = useProject();
   const info = SEQTRAK_TRACKS[channel];
   const pattern = track.patterns[track.activePattern];
   const totalSteps = pattern.bars * STEPS_PER_BAR;
@@ -458,8 +499,8 @@ const MelodicTrackRow = memo(function MelodicTrackRow({
   });
 
   const scaleNotes = useMemo(
-    () => getScaleNotes(project.scaleRoot, project.scaleName, octaveStart, octaveStart + 2),
-    [project.scaleRoot, project.scaleName, octaveStart],
+    () => getScaleNotes(meta.scaleRoot, meta.scaleName, octaveStart, octaveStart + 2),
+    [meta.scaleRoot, meta.scaleName, octaveStart],
   );
 
   const octaveLabel = `C${octaveStart}-C${octaveStart + 2}`;
@@ -625,9 +666,9 @@ const BeatNumbersHeader = memo(function BeatNumbersHeader({
 // ─── StepGrid (public export) ──────────────────────────────────
 
 export function StepGrid({ currentStep }: { currentStep?: number | null }) {
-  const { project } = useProject();
+  const refTrack = useTrack(1 as SeqtrackChannel);
   // Use first track's pattern bars as reference
-  const refPattern = project.tracks[1].patterns[project.tracks[1].activePattern];
+  const refPattern = refTrack.patterns[refTrack.activePattern];
   const totalSteps = refPattern.bars * STEPS_PER_BAR;
 
   return (

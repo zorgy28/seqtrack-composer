@@ -11,7 +11,7 @@ const soundRecommendationSchema = z.object({
 });
 
 const enhanceTrackSchema = z.object({
-  channel: z.number().min(1).max(11).describe("SEQTRAK channel"),
+  channel: z.number().describe("SEQTRAK channel 1-11"),
   patterns: z.array(patternSchema),
   soundPreset: soundRecommendationSchema.optional().describe("Recommended sound preset for this channel"),
   reason: z.string().optional().describe("Why this sound was chosen"),

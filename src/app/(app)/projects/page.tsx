@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useProject } from "@/providers/project-provider";
-import { saveProject, listProjects, loadProject, deleteProject } from "@/lib/midi/project-store";
+import { saveProject, listProjects, loadProject, deleteProject, type ProjectListItem } from "@/lib/midi/project-store";
 import { createEmptyProject } from "@/lib/midi/pattern-generators";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,21 +11,27 @@ import { Separator } from "@/components/ui/separator";
 
 export default function ProjectsPage() {
   const { project, setProject } = useProject();
-  const [savedProjects, setSavedProjects] = useState(() => listProjects());
+  const [savedProjects, setSavedProjects] = useState<ProjectListItem[]>([]);
 
-  const handleSave = () => {
-    saveProject(project);
-    setSavedProjects(listProjects());
+  const refreshList = useCallback(async () => {
+    setSavedProjects(await listProjects());
+  }, []);
+
+  useEffect(() => { refreshList(); }, [refreshList]);
+
+  const handleSave = async () => {
+    await saveProject(project);
+    await refreshList();
   };
 
-  const handleLoad = (id: string) => {
-    const loaded = loadProject(id);
+  const handleLoad = async (id: string) => {
+    const loaded = await loadProject(id);
     if (loaded) setProject(loaded);
   };
 
-  const handleDelete = (id: string) => {
-    deleteProject(id);
-    setSavedProjects(listProjects());
+  const handleDelete = async (id: string) => {
+    await deleteProject(id);
+    await refreshList();
   };
 
   const handleNew = () => {
