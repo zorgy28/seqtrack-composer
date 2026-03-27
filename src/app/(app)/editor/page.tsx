@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Sparkles, Play, Square, FileMusic } from "lucide-react";
 import { StepGrid } from "@/components/editor/step-grid";
 import { useProject } from "@/providers/project-provider";
@@ -33,6 +33,14 @@ export default function EditorPage() {
   // Live ref to project so the player can read current state each tick
   const projectRef = useRef(project);
   projectRef.current = project;
+
+  // Stop playback when navigating away (unmount)
+  useEffect(() => {
+    return () => {
+      playbackRef.current?.cancel();
+      playbackRef.current = null;
+    };
+  }, []);
 
   const handleGenerateDrum = (style: DrumStyle) => {
     const updated = applyDrumPatternToProject(project, style, 1);
