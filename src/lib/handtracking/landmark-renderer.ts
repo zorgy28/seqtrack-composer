@@ -106,6 +106,7 @@ export function drawLandmarks(
   ctx.fillStyle = color;
   ctx.beginPath();
   for (const lm of landmarks) {
+    if (!lm) continue;
     const x = scaleX(lm.x, canvasWidth, mirror);
     const y = scaleY(lm.y, canvasHeight);
 

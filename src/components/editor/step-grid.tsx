@@ -631,7 +631,7 @@ export function StepGrid({ currentStep }: { currentStep?: number | null }) {
   const totalSteps = refPattern.bars * STEPS_PER_BAR;
 
   return (
-    <div className="space-y-0" style={{ contain: "layout style paint" }}>
+    <div className="space-y-0" style={{ contain: "layout style" }}>
       {/* Beat numbers header with GPU-composited cursor overlay */}
       <div className="flex items-center gap-0">
         <div className="w-24 shrink-0" />

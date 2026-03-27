@@ -265,10 +265,15 @@ export function playPatternLoopedWithCursor(
 
     currentStep = (currentStep + 1) % liveTotalSteps;
 
-    // M6: If BPM changed, update the worker's firing interval dynamically.
-    if (worker && sMs !== lastIntervalMs) {
+    // M6: If BPM changed, update the firing interval dynamically.
+    if (sMs !== lastIntervalMs) {
       lastIntervalMs = sMs;
-      worker.postMessage({ type: "setInterval", intervalMs: sMs });
+      if (worker) {
+        worker.postMessage({ type: "setInterval", intervalMs: sMs });
+      } else if (fallbackInterval !== null) {
+        clearInterval(fallbackInterval);
+        fallbackInterval = setInterval(tick, sMs);
+      }
     }
   }
 

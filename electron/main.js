@@ -1,42 +1,38 @@
-const { app, BrowserWindow, session, shell, Menu } = require("electron");
+const { app, BrowserWindow, session, shell, Menu, ipcMain } = require("electron");
 const path = require("path");
 const { createServer } = require("http");
 const next = require("next");
 
-// ─── M3 GPU Optimization Flags ──────────────────────────────────
+// ─── GPU Optimization Flags ─────────────────────────────────────
 // MUST be set before app.whenReady() — Chromium reads these at GPU process init.
 
-// Force GPU rasterization for all 2D content (CSS, Canvas, SVG).
-// On M3, this offloads waveform/spectrum/landmark canvas to the 10-core GPU.
+// These flags are safe on all macOS hardware
 app.commandLine.appendSwitch("enable-gpu-rasterization");
-
-// Enable zero-copy texture uploads. On Apple Silicon's unified memory (UMA),
-// CPU and GPU share the same RAM — this eliminates redundant memcpy operations.
-app.commandLine.appendSwitch("enable-zero-copy");
-
-// Use IOSurface (macOS native GPU memory primitive) for compositing buffers.
-// Eliminates format conversion when Chromium's compositor hands off to the window server.
-app.commandLine.appendSwitch("enable-native-gpu-memory-buffers");
-
-// Use Metal ANGLE backend directly — skip OpenGL-to-Metal translation layer.
-// On M3, this uses the Metal 3 driver directly with lower command buffer overhead.
-app.commandLine.appendSwitch("use-angle", "metal");
-
-// Metal: native Metal GPU backend
-// CanvasOopRasterization: move Canvas 2D ops to GPU process (frees renderer main thread)
-// SkiaGraphite: next-gen Skia backend built on Metal (not translated from OpenGL)
-app.commandLine.appendSwitch(
-  "enable-features",
-  "Metal,CanvasOopRasterization,SkiaGraphite"
-);
-
-// Hardware-accelerated video decode for any media playback
 app.commandLine.appendSwitch("enable-accelerated-video-decode");
+
+// Apple Silicon (arm64) specific: Metal-native rendering pipeline
+// These flags use hard overrides that bypass fallback — unsafe on Intel x64 GPUs
+if (process.arch === "arm64") {
+  // Zero-copy texture uploads: UMA means CPU+GPU share the same RAM
+  app.commandLine.appendSwitch("enable-zero-copy");
+  // Use IOSurface (macOS native GPU memory primitive) for compositing
+  app.commandLine.appendSwitch("enable-native-gpu-memory-buffers");
+  // Metal ANGLE backend directly — skip OpenGL-to-Metal translation layer
+  app.commandLine.appendSwitch("use-angle", "metal");
+  // Metal: native GPU backend
+  // CanvasOopRasterization: move Canvas 2D ops to GPU process
+  // SkiaGraphite: next-gen Skia backend built on Metal
+  app.commandLine.appendSwitch(
+    "enable-features",
+    "Metal,CanvasOopRasterization,SkiaGraphite"
+  );
+}
 
 // ─── App State ──────────────────────────────────────────────────
 
 let mainWindow = null;
 let nextApp = null;
+let httpServer = null;
 let serverPort = 3000;
 
 const isDev = !app.isPackaged;
@@ -44,7 +40,7 @@ const isDev = !app.isPackaged;
 // ─── Next.js Server ─────────────────────────────────────────────
 
 async function startNextServer() {
-  const dir = isDev ? process.cwd() : path.join(app.getAppPath(), "..");
+  const dir = isDev ? process.cwd() : app.getAppPath();
 
   nextApp = next({
     dev: isDev,
@@ -63,6 +59,7 @@ async function startNextServer() {
     const port = isDev ? 3000 : 0;
     server.listen(port, "127.0.0.1", () => {
       serverPort = server.address().port;
+      httpServer = server;
       console.log(`[SeqTrack] Next.js server ready on http://127.0.0.1:${serverPort}`);
       resolve(server);
     });
@@ -219,6 +216,18 @@ app.whenReady().then(async () => {
   });
 });
 
+// Send MIDI panic (All Notes Off) before quitting to prevent stuck notes on SEQTRAK
+app.on("before-quit", (e) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("app-before-quit");
+  }
+});
+
 app.on("window-all-closed", () => {
+  // Close the embedded Next.js server before quitting
+  if (httpServer) {
+    httpServer.close();
+    httpServer = null;
+  }
   app.quit();
 });

@@ -10,7 +10,6 @@ files:
   - electron/**/*
   - .next/**/*
   - public/**/*
-  - src/**/*
   - node_modules/**/*
   - package.json
   - next.config.ts

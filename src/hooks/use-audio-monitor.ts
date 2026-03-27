@@ -131,19 +131,11 @@ export function useAudioMonitor(): UseAudioMonitorReturn {
         const state = await startAudioCapture(resolvedDeviceId);
         stateRef.current = state;
         setIsCapturing(true);
-        setSelectedDeviceId(resolvedDeviceId ?? null);
+        setSelectedDeviceId(resolvedDeviceId);
 
         // Re-enumerate devices after permission granted (labels now available)
         const inputs = await listAudioInputDevices();
         setDevices(inputs);
-
-        // Auto-select SEQTRAK if we didn't have a specific device
-        if (!resolvedDeviceId) {
-          const seqtrack = await findSeqtrackAudioInput();
-          if (seqtrack) {
-            setSelectedDeviceId(seqtrack.deviceId);
-          }
-        }
 
         startLevelLoop();
       } catch (err) {

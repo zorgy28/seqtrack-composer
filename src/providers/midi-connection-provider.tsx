@@ -32,6 +32,7 @@ export function MidiConnectionProvider({ children }: { children: ReactNode }) {
   const [testResults, setTestResults] = useState<ChannelTestResult[]>([]);
   const [isTesting, setIsTesting] = useState(false);
   const initRef = useRef(false);
+  const deviceIdRef = useRef<string | null>(null);
 
   // Initialize MIDI on mount
   useEffect(() => {
@@ -41,17 +42,20 @@ export function MidiConnectionProvider({ children }: { children: ReactNode }) {
     async function init() {
       const { initMidi, onDeviceChange } = await import("@/lib/webmidi/midi-connection");
       const result = await initMidi();
+      deviceIdRef.current = result.device?.id ?? null;
       setState(result);
 
       // Listen for device changes
       const cleanup = onDeviceChange(({ outputs, inputs }) => {
         setState((prev) => {
           const seqtrack = outputs.find((o) => o.isSeqtrack) ?? null;
+          const newDevice = seqtrack ?? prev.device;
+          deviceIdRef.current = newDevice?.id ?? null;
           return {
             ...prev,
             outputs,
             inputs,
-            device: seqtrack ?? prev.device,
+            device: newDevice,
             status: seqtrack ? "connected" : prev.device ? "disconnected" : prev.status,
           };
         });
@@ -63,10 +67,24 @@ export function MidiConnectionProvider({ children }: { children: ReactNode }) {
     let cleanup: (() => void) | undefined;
     init().then((c) => { cleanup = c; });
 
+    // In Electron: send All Notes Off before quit to prevent stuck notes on SEQTRAK
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const electronAPI = (window as any).electronAPI;
+    if (electronAPI?.onBeforeQuit) {
+      electronAPI.onBeforeQuit(() => {
+        const id = deviceIdRef.current;
+        if (!id) return;
+        import("@/lib/webmidi/midi-sender").then(({ sendAllNotesOff }) => {
+          sendAllNotesOff(id);
+        });
+      });
+    }
+
     return () => { cleanup?.(); };
   }, []);
 
   const selectDevice = useCallback((device: MidiDevice) => {
+    deviceIdRef.current = device.id;
     setState((prev) => ({
       ...prev,
       device,
@@ -75,6 +93,7 @@ export function MidiConnectionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const disconnect = useCallback(() => {
+    deviceIdRef.current = null;
     setState((prev) => ({
       ...prev,
       device: null,
