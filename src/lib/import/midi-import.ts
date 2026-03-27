@@ -77,8 +77,10 @@ export async function parseMidiFile(arrayBuffer: ArrayBuffer): Promise<ImportRes
     return b.noteCount - a.noteCount;
   });
 
-  // Available melodic channels in priority order
-  const melodicSlots: SeqtrackChannel[] = [8, 9, 10, 11];
+  // Available melodic channels: Ch 8 (bass/AWM2), Ch 9 (lead/AWM2), Ch 10 (DX/FM)
+  // Ch 11 (Sampler) is excluded — it has no built-in sounds, only user samples.
+  // When more than 3 melodic tracks exist, overflow shares Ch 9 (lead channel).
+  const melodicSlots: SeqtrackChannel[] = [8, 9, 10];
   const usedChannels = new Set<SeqtrackChannel>();
 
   for (const meta of sorted) {
@@ -91,9 +93,10 @@ export async function parseMidiFile(arrayBuffer: ArrayBuffer): Promise<ImportRes
       // Pads/strings prefer Ch 10
       assigned = 10;
     } else {
-      // Find first available slot
+      // Find first available slot from [8, 9, 10]
       const available = melodicSlots.find((ch) => !usedChannels.has(ch));
-      assigned = available ?? 11; // overflow to Ch 11
+      // Overflow: share Ch 9 (lead) — multiple instruments can layer on same channel
+      assigned = available ?? 9;
     }
 
     usedChannels.add(assigned);

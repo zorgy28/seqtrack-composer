@@ -157,11 +157,26 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
       if (device) {
         const { selectSound } = await import("@/lib/midi/program-change");
         const { findPresetById } = await import("@/lib/midi/sound-library");
+        const { gmDrumKitPresets } = await import("@/lib/import/gm-to-seqtrack");
+
+        // Apply melodic presets
         for (const { channel, presetId } of patterns) {
           if (!presetId) continue;
           const preset = findPresetById(presetId);
           if (preset) {
             selectSound(device.id, channel, preset);
+          }
+        }
+
+        // Apply drum kit presets based on detected GM kit
+        const drumInfo = importResult.trackInfos?.find((t) => t.isDrum);
+        if (drumInfo) {
+          const drumPresets = gmDrumKitPresets(drumInfo.gmProgram);
+          for (const [ch, pid] of Object.entries(drumPresets)) {
+            const preset = findPresetById(pid);
+            if (preset) {
+              selectSound(device.id, Number(ch) as SeqtrackChannel, preset);
+            }
           }
         }
       }

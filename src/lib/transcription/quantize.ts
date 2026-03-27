@@ -39,8 +39,9 @@ export function quantizeEvents(
 
   const totalSteps = maxBars * STEPS_PER_BAR;
   const stepsPerSecond = (bpm / 60) * 4; // 16th notes per second
+  const maxTimeSeconds = totalSteps / stepsPerSecond; // only import notes within this window
 
-  // ---- Step 1 & 2: time → step, clamped to grid --------------------
+  // ---- Step 1 & 2: time → step, filtered to requested bars ----------
 
   interface Quantized {
     pitch: number;
@@ -50,18 +51,23 @@ export function quantizeEvents(
     confidence: number;
   }
 
-  const quantized: Quantized[] = events.map((e) => {
+  const quantized: Quantized[] = [];
+  for (const e of events) {
+    // Only import notes that start within the requested bar range
+    // (don't wrap a 5-minute song into 8 bars — that fills every step)
+    if (e.start >= maxTimeSeconds) continue;
+
     const rawStep = Math.round(e.start * stepsPerSecond);
-    const step = rawStep % totalSteps;
+    const step = Math.min(rawStep, totalSteps - 1);
     const duration = Math.max(1, Math.round((e.end - e.start) * stepsPerSecond));
-    return {
+    quantized.push({
       pitch: e.pitch,
       step,
       velocity: e.velocity,
       duration,
       confidence: e.confidence ?? 1,
-    };
-  });
+    });
+  }
 
   // ---- Step 3: merge same-step + same-pitch (keep highest vel) -----
 
