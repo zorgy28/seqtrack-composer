@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useProject } from "@/providers/project-provider";
+import { useMidiConnection } from "@/hooks/use-midi-connection";
 import { SEQTRAK_TRACKS, ALL_CHANNELS, STEPS_PER_BAR, getTrackSolidClass } from "@/lib/midi/constants";
 import type { SeqtrackChannel } from "@/lib/midi/types";
 import type { ImportResult } from "@/lib/import/types";
@@ -57,6 +58,7 @@ interface ImportDialogProps {
 
 export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const { project, setProject } = useProject();
+  const { device } = useMidiConnection();
 
   // ── State ───────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<TabId>("sheet");
@@ -130,20 +132,40 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
     setLoading(true);
     try {
       const { importToPatterns } = await import("@/lib/import/convert");
-      const patterns = importToPatterns(importResult, project.bpm, bars, presetSelections);
+      // Use detected BPM from MIDI file, fall back to project BPM
+      const effectiveBpm = importResult.bpm ?? project.bpm;
+      const patterns = importToPatterns(importResult, effectiveBpm, bars, presetSelections);
 
-      const updated = { ...project };
+      const updated = { ...project, bpm: effectiveBpm };
       const updatedTracks = { ...updated.tracks };
 
-      for (const { channel, pattern } of patterns) {
+      for (const { channel, pattern, presetId } of patterns) {
         const track = { ...updatedTracks[channel] };
         track.patterns = [...track.patterns];
         track.patterns[track.activePattern] = pattern;
+        // Store selected preset on the track for sound assignment
+        if (presetId) {
+          (track as Record<string, unknown>).selectedPresetId = presetId;
+        }
         updatedTracks[channel] = track;
       }
 
       updated.tracks = updatedTracks;
       setProject({ ...updated, updatedAt: new Date().toISOString() });
+
+      // Send program changes to SEQTRAK so imported sounds take effect
+      if (device) {
+        const { selectSound } = await import("@/lib/midi/program-change");
+        const { findPresetById } = await import("@/lib/midi/sound-library");
+        for (const { channel, presetId } of patterns) {
+          if (!presetId) continue;
+          const preset = findPresetById(presetId);
+          if (preset) {
+            selectSound(device.id, channel, preset);
+          }
+        }
+      }
+
       onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to import patterns");
