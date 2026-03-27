@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useProject } from "@/providers/project-provider";
-import { SEQTRAK_TRACKS, ALL_CHANNELS, STEPS_PER_BAR } from "@/lib/midi/constants";
+import { SEQTRAK_TRACKS, ALL_CHANNELS, STEPS_PER_BAR, getTrackSolidClass } from "@/lib/midi/constants";
 import type { SeqtrackChannel } from "@/lib/midi/types";
 import type { ImportResult } from "@/lib/import/types";
 import { INSTRUMENTS } from "@/lib/import/types";
@@ -47,13 +47,6 @@ const BAR_OPTIONS = [
 ];
 
 const INSTRUMENT_OPTIONS = INSTRUMENTS.map((i) => i.name);
-
-const TRACK_BG_DOT: Record<string, string> = {
-  red: "bg-red-500", yellow: "bg-yellow-500", fuchsia: "bg-fuchsia-500",
-  cyan: "bg-cyan-500", blue: "bg-blue-500", green: "bg-green-500",
-  slate: "bg-slate-400", purple: "bg-purple-500", teal: "bg-teal-500",
-  amber: "bg-amber-500", emerald: "bg-emerald-500",
-};
 
 // ── Component ────────────────────────────────────────────────────
 
@@ -385,7 +378,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
                   .map(([ch, count]) => {
                     const info = SEQTRAK_TRACKS[ch as SeqtrackChannel];
                     if (!info) return null;
-                    const dotColor = TRACK_BG_DOT[info.color] ?? "bg-gray-500";
+                    const dotColor = getTrackSolidClass(ch as SeqtrackChannel);
                     return (
                       <div key={ch} className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         <span className={cn("size-2 rounded-full", dotColor)} />

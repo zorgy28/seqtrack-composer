@@ -183,16 +183,16 @@ export function useHandTracking(): UseHandTrackingReturn {
   const configRef = useRef(config);
   const isPausedRef = useRef(isPaused);
 
-  // Keep refs in sync with state
-  useEffect(() => { mappingsRef.current = mappings; }, [mappings]);
-  useEffect(() => { configRef.current = config; }, [config]);
-  useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
+  // Sync refs directly in render body — safe because refs are not reactive
+  mappingsRef.current = mappings;
+  configRef.current = config;
+  isPausedRef.current = isPaused;
 
   // ── MIDI connection (for sendCC) ─────────────────────────────
 
   const { device } = useMidiConnection();
   const deviceIdRef = useRef<string | null>(null);
-  useEffect(() => { deviceIdRef.current = device?.id ?? null; }, [device]);
+  deviceIdRef.current = device?.id ?? null;
 
   // ── localStorage persistence ─────────────────────────────────
 
@@ -621,7 +621,6 @@ export function useHandTracking(): UseHandTrackingReturn {
 
   const reorderMappings = useCallback((reordered: GestureMapping[]) => {
     setMappings(reordered);
-    saveMappingsToStorage(reordered);
   }, []);
 
   // ── updateConfig() ───────────────────────────────────────────

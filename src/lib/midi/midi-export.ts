@@ -3,16 +3,13 @@ import type { Project } from "./types";
 import { ALL_CHANNELS, SEQTRAK_TRACKS, TICKS_PER_STEP, STEPS_PER_BAR } from "./constants";
 
 /**
- * Export project to a Standard MIDI File (Type 1).
- * Ported from seqtrak_composer.py export_midi() lines 378-451.
- *
- * Each SEQTRAK track is exported on its corresponding MIDI channel (1-11).
- * Returns a Uint8Array of the .mid file.
+ * Shared builder — constructs a MidiWriter.Writer from the project.
+ * Called by both exportProjectToMidi and exportProjectToDataUri.
  */
-export function exportProjectToMidi(
+function buildMidiWriter(
   project: Project,
-  exportAllPatterns = false,
-): Uint8Array {
+  exportAllPatterns: boolean,
+): MidiWriter.Writer {
   const tracks: MidiWriter.Track[] = [];
 
   for (const ch of ALL_CHANNELS) {
@@ -69,8 +66,21 @@ export function exportProjectToMidi(
     tracks.push(midiTrack);
   }
 
-  const writer = new MidiWriter.Writer(tracks);
-  return writer.buildFile();
+  return new MidiWriter.Writer(tracks);
+}
+
+/**
+ * Export project to a Standard MIDI File (Type 1).
+ * Ported from seqtrak_composer.py export_midi() lines 378-451.
+ *
+ * Each SEQTRAK track is exported on its corresponding MIDI channel (1-11).
+ * Returns a Uint8Array of the .mid file.
+ */
+export function exportProjectToMidi(
+  project: Project,
+  exportAllPatterns = false,
+): Uint8Array {
+  return buildMidiWriter(project, exportAllPatterns).buildFile();
 }
 
 /**
@@ -80,53 +90,7 @@ export function exportProjectToDataUri(
   project: Project,
   exportAllPatterns = false,
 ): string {
-  const tracks: MidiWriter.Track[] = [];
-
-  for (const ch of ALL_CHANNELS) {
-    const track = project.tracks[ch];
-    const info = SEQTRAK_TRACKS[ch];
-    const midiTrack = new MidiWriter.Track();
-
-    midiTrack.addTrackName(info.name);
-
-    if (ch === 1) {
-      midiTrack.setTempo(project.bpm);
-      midiTrack.setTimeSignature(4, 4);
-    }
-
-    if (track.muted) {
-      tracks.push(midiTrack);
-      continue;
-    }
-
-    const patternsToExport = exportAllPatterns
-      ? track.patterns.filter((p) => p.notes.length > 0)
-      : track.patterns[track.activePattern]?.notes.length
-        ? [track.patterns[track.activePattern]]
-        : [];
-
-    let stepOffset = 0;
-    for (const pattern of patternsToExport) {
-      for (const note of pattern.notes) {
-        const startTick = (stepOffset + note.step) * TICKS_PER_STEP;
-        midiTrack.addEvent(
-          new MidiWriter.NoteEvent({
-            pitch: [note.pitch],
-            velocity: note.velocity,
-            startTick,
-            duration: `T${note.duration * TICKS_PER_STEP}`,
-            channel: ch,
-          }),
-        );
-      }
-      stepOffset += pattern.bars * STEPS_PER_BAR;
-    }
-
-    tracks.push(midiTrack);
-  }
-
-  const writer = new MidiWriter.Writer(tracks);
-  return writer.dataUri();
+  return buildMidiWriter(project, exportAllPatterns).dataUri();
 }
 
 /**

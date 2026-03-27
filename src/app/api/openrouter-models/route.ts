@@ -6,8 +6,10 @@ export const maxDuration = 30;
  * stored in settings passed via query param (for client-side keys).
  */
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const clientKey = searchParams.get("key") || "";
+  const clientKey =
+    request.headers.get("x-api-key") ||
+    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ||
+    "";
   const apiKey = clientKey || process.env.OPENROUTER_API_KEY || "";
 
   if (!apiKey) {

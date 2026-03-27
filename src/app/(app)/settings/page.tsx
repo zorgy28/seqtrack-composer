@@ -172,10 +172,9 @@ function OpenRouterModelSelector({
     setLoading(true);
     setFetched(false);
     try {
-      const params = key !== (process.env.NEXT_PUBLIC_OPENROUTER_API_KEY ?? "")
-        ? `?key=${encodeURIComponent(key)}`
-        : "";
-      const res = await fetch(`/api/openrouter-models${params}`);
+      const res = await fetch("/api/openrouter-models", {
+        headers: { "x-api-key": key },
+      });
       if (res.ok) {
         const data = await res.json();
         setModels(data.models ?? []);

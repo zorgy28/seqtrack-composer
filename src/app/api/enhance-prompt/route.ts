@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     }
 
     const output = await generateWithFallback({
-      model: getModelWithOverride(modelProvider, modelId),
+      model: await getModelWithOverride(modelProvider, modelId),
       schema: enhancedPromptSchema,
       system: buildEnhancerSystemPrompt(),
       prompt: buildEnhancerUserPrompt({ prompt, bpm, scaleRoot, scaleName, bars }),

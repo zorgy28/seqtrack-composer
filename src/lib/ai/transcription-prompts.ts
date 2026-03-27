@@ -3,7 +3,10 @@ import { SEQTRAK_CHANNEL_DOCS, STEP_FORMAT_DOCS, NOTE_FORMAT_DOCS } from "./shar
 
 // ---- Dynamic sound catalog builder ----------------------------------
 
+let _cachedSoundCatalog: string | null = null;
+
 export function buildSoundCatalog(): string {
+  if (_cachedSoundCatalog) return _cachedSoundCatalog;
   const presets = ALL_PRESETS;
   const lines: string[] = ["## Sound Library — Available Presets (select by ID)", ""];
 
@@ -37,13 +40,17 @@ export function buildSoundCatalog(): string {
     lines.push("");
   }
 
-  return lines.join("\n");
+  _cachedSoundCatalog = lines.join("\n");
+  return _cachedSoundCatalog;
 }
 
 // ---- System prompt --------------------------------------------------
 
+let _cachedTranscriptionPrompt: string | null = null;
+
 export function getTranscriptionSystemPrompt(): string {
-  return `You are an expert music transcription engine for the Yamaha SEQTRAK groovebox. You receive MIDI data extracted from audio stems (via AI separation) and must convert it into playable SEQTRAK step-sequencer patterns.
+  if (_cachedTranscriptionPrompt) return _cachedTranscriptionPrompt;
+  _cachedTranscriptionPrompt = `You are an expert music transcription engine for the Yamaha SEQTRAK groovebox. You receive MIDI data extracted from audio stems (via AI separation) and must convert it into playable SEQTRAK step-sequencer patterns.
 
 ${SEQTRAK_CHANNEL_DOCS}
 
@@ -120,9 +127,10 @@ Return a JSON object matching the schema exactly. Include:
 - 3 options (faithful, simplified, creative) with full track data and sound recommendations
 - An analysis section with detected genre, key, BPM, and a summary of each stem's content
 - Each pattern MUST use the exact number of bars requested`;
+  return _cachedTranscriptionPrompt;
 }
 
-// Keep the old export for backward compatibility
+// Keep the old export for backward compatibility — now backed by the cached function
 export const TRANSCRIPTION_SYSTEM_PROMPT = getTranscriptionSystemPrompt();
 
 // ---- User prompt builder --------------------------------------------

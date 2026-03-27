@@ -61,7 +61,7 @@ export async function POST(request: Request) {
       console.log(`[transcribe/refine] provider=${modelProvider ?? "claude"} model=${modelId ?? "default"} bars=${bars ?? 4}`);
 
       const output = await generateWithFallback({
-        model: getModelWithOverride(modelProvider, modelId),
+        model: await getModelWithOverride(modelProvider, modelId),
         schema: transcriptionResultSchema,
         system: getTranscriptionSystemPrompt(),
         prompt: buildTranscriptionPrompt({

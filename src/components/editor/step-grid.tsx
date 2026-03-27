@@ -4,7 +4,7 @@ import { useState, useRef, useMemo, useCallback, memo } from "react";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import { useProject } from "@/providers/project-provider";
 import { useSoundControl } from "@/hooks/use-sound-control";
-import { SEQTRAK_TRACKS, STEPS_PER_BAR, DRUM_CHANNELS, SYNTH_CHANNELS } from "@/lib/midi/constants";
+import { SEQTRAK_TRACKS, STEPS_PER_BAR, DRUM_CHANNELS, SYNTH_CHANNELS, getTrackBgActiveClass, getTrackSolidClass } from "@/lib/midi/constants";
 import { toggleNoteInPattern } from "@/lib/midi/pattern-generators";
 import { getScaleNotes, midiToNoteName } from "@/lib/midi/note-utils";
 import type { SeqtrackChannel, Note, Pattern } from "@/lib/midi/types";
@@ -12,21 +12,8 @@ import { cn } from "@/lib/utils";
 import { SoundPicker } from "./sound-picker";
 import { getPresetsForChannel } from "@/lib/midi/sound-library";
 
-// ─── Color Maps ────────────────────────────────────────────────
-
-const TRACK_BG: Record<string, string> = {
-  red: "bg-red-500", yellow: "bg-yellow-500", fuchsia: "bg-fuchsia-500",
-  cyan: "bg-cyan-500", blue: "bg-blue-500", green: "bg-green-500",
-  slate: "bg-slate-400", purple: "bg-purple-500", teal: "bg-teal-500",
-  amber: "bg-amber-500", emerald: "bg-emerald-500",
-};
-
-const TRACK_BG_ACTIVE: Record<string, string> = {
-  red: "bg-red-500/80", yellow: "bg-yellow-500/80", fuchsia: "bg-fuchsia-500/80",
-  cyan: "bg-cyan-500/80", blue: "bg-blue-500/80", green: "bg-green-500/80",
-  slate: "bg-slate-400/80", purple: "bg-purple-500/80", teal: "bg-teal-500/80",
-  amber: "bg-amber-500/80", emerald: "bg-emerald-500/80",
-};
+// Stable no-op for StepCell onClick when delegation is used
+const noop = () => {};
 
 // ─── StepCell ──────────────────────────────────────────────────
 
@@ -81,8 +68,8 @@ const TrackHeader = memo(function TrackHeader({
 
   const track = project.tracks[channel];
   const info = SEQTRAK_TRACKS[channel];
-  const dotColor = TRACK_BG[info.color] ?? "bg-gray-500";
-  const trackColor = TRACK_BG_ACTIVE[info.color] ?? "bg-gray-500/80";
+  const dotColor = getTrackSolidClass(channel);
+  const trackColor = getTrackBgActiveClass(channel);
   const currentPreset = getTrackSound(channel).preset;
   const soundDisplayName = useMemo(() => {
     if (currentPreset) return currentPreset.name;
@@ -254,7 +241,7 @@ function getHarmonyHint(
 
 // ─── PianoRollGrid ─────────────────────────────────────────────
 
-function PianoRollGrid({
+const PianoRollGrid = memo(function PianoRollGrid({
   scaleNotes,
   pattern,
   totalSteps,
@@ -285,8 +272,19 @@ function PianoRollGrid({
     [scaleNotes],
   );
 
+  const handleGridClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const target = (e.target as HTMLElement).closest<HTMLElement>('[data-step]');
+    if (!target) return;
+    const step = Number(target.dataset.step);
+    const pitch = Number(target.dataset.pitch);
+    onToggle(step, pitch);
+  }, [onToggle]);
+
   return (
-    <div className="max-h-[280px] overflow-y-auto ml-[calc(6rem+1.5rem+3.5rem)] mr-0">
+    <div
+      className="max-h-[280px] overflow-y-auto ml-[calc(6rem+1.5rem+3.5rem)] mr-0"
+      onClick={handleGridClick}
+    >
       {displayNotes.map((pitch) => {
         const isC = pitch % 12 === 0;
         return (
@@ -329,17 +327,18 @@ function PianoRollGrid({
                 }
 
                 return (
-                  <StepCell
-                    key={step}
-                    active={!!note}
-                    velocity={note?.velocity ?? 0}
-                    colorClass={colorClass}
-                    beat={isBeat}
-                    onClick={() => onToggle(step, pitch)}
-                    size="compact"
-                    tooltip={tooltip}
-                    className={!note ? suggestionClass : undefined}
-                  />
+                  <div key={step} data-step={step} data-pitch={pitch} className="contents">
+                    <StepCell
+                      active={!!note}
+                      velocity={note?.velocity ?? 0}
+                      colorClass={colorClass}
+                      beat={isBeat}
+                      onClick={noop}
+                      size="compact"
+                      tooltip={tooltip}
+                      className={!note ? suggestionClass : undefined}
+                    />
+                  </div>
                 );
               })}
             </div>
@@ -348,7 +347,7 @@ function PianoRollGrid({
       })}
     </div>
   );
-}
+});
 
 // ─── DrumTrackRow ──────────────────────────────────────────────
 
@@ -359,10 +358,9 @@ const DrumTrackRow = memo(function DrumTrackRow({
 }) {
   const { project, updatePattern, selectedChannel } = useProject();
   const track = project.tracks[channel];
-  const info = SEQTRAK_TRACKS[channel];
   const pattern = track.patterns[track.activePattern];
   const totalSteps = pattern.bars * STEPS_PER_BAR;
-  const colorClass = TRACK_BG_ACTIVE[info.color] ?? "bg-gray-500/80";
+  const colorClass = getTrackBgActiveClass(channel);
   const defaultPitch = 60;
 
   // Build step lookup
@@ -379,6 +377,13 @@ const DrumTrackRow = memo(function DrumTrackRow({
     updatePattern(channel, track.activePattern, updated);
   }, [pattern, channel, track.activePattern, updatePattern]);
 
+  const handleGridClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const target = (e.target as HTMLElement).closest<HTMLElement>('[data-step]');
+    if (!target) return;
+    const step = Number(target.dataset.step);
+    handleToggle(step);
+  }, [handleToggle]);
+
   return (
     <div
       className={cn(
@@ -388,19 +393,20 @@ const DrumTrackRow = memo(function DrumTrackRow({
     >
       <TrackHeader channel={channel} />
 
-      <div className="flex gap-px flex-1 pr-2">
+      <div className="flex gap-px flex-1 pr-2" onClick={handleGridClick}>
         {Array.from({ length: totalSteps }, (_, step) => {
           const note = stepNotes.get(step);
           const isBeat = step % 4 === 0;
           return (
-            <StepCell
-              key={step}
-              active={!!note}
-              velocity={note?.velocity ?? 0}
-              colorClass={colorClass}
-              beat={isBeat}
-              onClick={() => handleToggle(step)}
-            />
+            <div key={step} data-step={step} className="contents">
+              <StepCell
+                active={!!note}
+                velocity={note?.velocity ?? 0}
+                colorClass={colorClass}
+                beat={isBeat}
+                onClick={noop}
+              />
+            </div>
           );
         })}
       </div>
@@ -420,7 +426,7 @@ const MelodicTrackRow = memo(function MelodicTrackRow({
   const info = SEQTRAK_TRACKS[channel];
   const pattern = track.patterns[track.activePattern];
   const totalSteps = pattern.bars * STEPS_PER_BAR;
-  const colorClass = TRACK_BG_ACTIVE[info.color] ?? "bg-gray-500/80";
+  const colorClass = getTrackBgActiveClass(channel);
 
   // Build ensemble: what notes are playing on OTHER channels at each step
   const ensembleAtStep = useMemo(() => {
@@ -494,6 +500,10 @@ const MelodicTrackRow = memo(function MelodicTrackRow({
     updatePattern(channel, track.activePattern, updated);
   }, [pattern, channel, track.activePattern, updatePattern]);
 
+  const handleSelectChannel = useCallback(() => {
+    setSelectedChannel(channel);
+  }, [setSelectedChannel, channel]);
+
   // Collapsed view: summary row showing "any note at step" with note name tooltips
   if (!isExpanded) {
     return (
@@ -505,7 +515,7 @@ const MelodicTrackRow = memo(function MelodicTrackRow({
       >
         <TrackHeader channel={channel} />
 
-        <div className="flex gap-px flex-1 pr-2">
+        <div className="flex gap-px flex-1 pr-2" onClick={handleSelectChannel}>
           {Array.from({ length: totalSteps }, (_, step) => {
             const note = summaryNotes.get(step);
             const isBeat = step % 4 === 0;
@@ -516,7 +526,7 @@ const MelodicTrackRow = memo(function MelodicTrackRow({
                 velocity={note?.velocity ?? 0}
                 colorClass={colorClass}
                 beat={isBeat}
-                  onClick={() => setSelectedChannel(channel)}
+                onClick={noop}
                 tooltip={stepTooltips.get(step)}
               />
             );
@@ -554,6 +564,64 @@ const MelodicTrackRow = memo(function MelodicTrackRow({
   );
 });
 
+// ─── PlaybackCursor ────────────────────────────────────────────
+// Isolated component: only re-renders when currentStep changes.
+// Uses GPU-composited CSS transform instead of per-step class toggling.
+
+const PlaybackCursor = memo(function PlaybackCursor({
+  currentStep,
+  totalSteps,
+}: {
+  currentStep: number | null | undefined;
+  totalSteps: number;
+}) {
+  if (currentStep == null || currentStep < 0) return null;
+
+  // percentage offset: each step occupies 1/totalSteps of the grid,
+  // plus a tiny gap correction for the 1px gaps between cells
+  const percent = (currentStep / totalSteps) * 100;
+
+  return (
+    <div
+      className="absolute top-0 bottom-0 pointer-events-none z-10 will-change-transform"
+      style={{
+        left: `${percent}%`,
+        width: `${100 / totalSteps}%`,
+        transform: "translateZ(0)", // force GPU layer
+      }}
+    >
+      <div className="h-full bg-primary/25 rounded-sm" />
+    </div>
+  );
+});
+
+// ─── BeatNumbersHeader ─────────────────────────────────────────
+// Static beat labels — no dependency on currentStep.
+
+const BeatNumbersHeader = memo(function BeatNumbersHeader({
+  totalSteps,
+}: {
+  totalSteps: number;
+}) {
+  return (
+    <div className="flex gap-px flex-1 pr-2">
+      {Array.from({ length: totalSteps }, (_, step) => (
+        <div
+          key={step}
+          className={cn(
+            "h-5 w-full text-center text-[9px] font-mono",
+            step % 4 === 0
+              ? "text-muted-foreground"
+              : "text-muted-foreground/30",
+          )}
+        >
+          {step % 4 === 0 ? step / 4 + 1 : ""}
+        </div>
+      ))}
+    </div>
+  );
+});
+
 // ─── StepGrid (public export) ──────────────────────────────────
 
 export function StepGrid({ currentStep }: { currentStep?: number | null }) {
@@ -563,28 +631,15 @@ export function StepGrid({ currentStep }: { currentStep?: number | null }) {
   const totalSteps = refPattern.bars * STEPS_PER_BAR;
 
   return (
-    <div className="space-y-0">
-      {/* Beat numbers header */}
+    <div className="space-y-0" style={{ contain: "layout style paint" }}>
+      {/* Beat numbers header with GPU-composited cursor overlay */}
       <div className="flex items-center gap-0">
         <div className="w-24 shrink-0" />
         <div className="w-6 shrink-0" />
         <div className="w-14 shrink-0" />
-        <div className="flex gap-px flex-1 pr-2">
-          {Array.from({ length: totalSteps }, (_, step) => (
-            <div
-              key={step}
-              className={cn(
-                "h-5 w-full text-center text-[9px] font-mono",
-                currentStep === step
-                  ? "bg-primary text-primary-foreground font-bold rounded-sm"
-                  : step % 4 === 0
-                    ? "text-muted-foreground"
-                    : "text-muted-foreground/30",
-              )}
-            >
-              {step % 4 === 0 ? step / 4 + 1 : ""}
-            </div>
-          ))}
+        <div className="relative flex gap-px flex-1 pr-2">
+          <PlaybackCursor currentStep={currentStep} totalSteps={totalSteps} />
+          <BeatNumbersHeader totalSteps={totalSteps} />
         </div>
       </div>
 

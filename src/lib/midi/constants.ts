@@ -74,3 +74,39 @@ export const QUANTIZE_OPTIONS: Record<string, number> = {
 // Device detection
 export const SEQTRAK_DEVICE_NAMES = ["SEQTRAK", "seqtrak", "Yamaha SEQTRAK"];
 export const YAMAHA_SYSEX_ID = 0x43;
+
+// ─── Track color helpers ────────────────────────────────────────
+// Full class name literals are required so Tailwind can statically scan them.
+
+const TRACK_BG: Record<SeqtrackChannel, string> = {
+  1: "bg-red-500/20", 2: "bg-yellow-500/20", 3: "bg-fuchsia-500/20",
+  4: "bg-cyan-500/20", 5: "bg-blue-500/20", 6: "bg-green-500/20",
+  7: "bg-slate-500/20", 8: "bg-purple-500/20", 9: "bg-teal-500/20",
+  10: "bg-amber-500/20", 11: "bg-emerald-500/20",
+};
+
+const TRACK_BG_ACTIVE: Record<SeqtrackChannel, string> = {
+  1: "bg-red-600", 2: "bg-yellow-600", 3: "bg-fuchsia-600",
+  4: "bg-cyan-600", 5: "bg-blue-600", 6: "bg-green-600",
+  7: "bg-slate-600", 8: "bg-purple-600", 9: "bg-teal-600",
+  10: "bg-amber-600", 11: "bg-emerald-600",
+};
+
+const TRACK_SOLID: Record<SeqtrackChannel, string> = {
+  1: "bg-red-500", 2: "bg-yellow-500", 3: "bg-fuchsia-500",
+  4: "bg-cyan-500", 5: "bg-blue-500", 6: "bg-green-500",
+  7: "bg-slate-500", 8: "bg-purple-500", 9: "bg-teal-500",
+  10: "bg-amber-500", 11: "bg-emerald-500",
+};
+
+export function getTrackBgClass(channel: SeqtrackChannel): string {
+  return TRACK_BG[channel] ?? "bg-zinc-500/20";
+}
+
+export function getTrackBgActiveClass(channel: SeqtrackChannel): string {
+  return TRACK_BG_ACTIVE[channel] ?? "bg-zinc-600";
+}
+
+export function getTrackSolidClass(channel: SeqtrackChannel): string {
+  return TRACK_SOLID[channel] ?? "bg-zinc-500";
+}

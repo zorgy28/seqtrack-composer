@@ -8,9 +8,17 @@ import { applyDrumPatternToProject, createEmptyProject } from "@/lib/midi/patter
 import { DRUM_STYLES, ALL_CHANNELS } from "@/lib/midi/constants";
 import type { DrumStyle, SeqtrackChannel } from "@/lib/midi/types";
 import { useMidiConnection } from "@/hooks/use-midi-connection";
+import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
-import { EnhanceDialog } from "@/components/enhance/enhance-dialog";
-import { ImportDialog } from "@/components/editor/import-dialog";
+
+const EnhanceDialog = dynamic(
+  () => import("@/components/enhance/enhance-dialog").then((m) => ({ default: m.EnhanceDialog })),
+  { ssr: false },
+);
+const ImportDialog = dynamic(
+  () => import("@/components/editor/import-dialog").then((m) => ({ default: m.ImportDialog })),
+  { ssr: false },
+);
 
 export default function EditorPage() {
   const { project, setProject } = useProject();

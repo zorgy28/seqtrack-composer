@@ -1,7 +1,3 @@
-import { anthropic } from "@ai-sdk/anthropic";
-import { google } from "@ai-sdk/google";
-import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
 import { getSettings } from "@/lib/settings";
 
@@ -15,7 +11,8 @@ const lmStudioFetch: typeof fetch = (url, init) => {
   });
 };
 
-function createLMStudioProvider() {
+async function createLMStudioProvider() {
+  const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
   return createOpenAICompatible({
     name: "lmstudio",
     baseURL: process.env.LM_STUDIO_URL || "http://host.docker.internal:1235/v1",
@@ -29,21 +26,24 @@ function createLMStudioProvider() {
 /**
  * Return the configured AI SDK model based on settings store.
  */
-export function getModel(): LanguageModel {
+export async function getModel(): Promise<LanguageModel> {
   const settings = getSettings();
   const provider = settings.llmProvider;
 
   if (provider === "claude") {
+    const { anthropic } = await import("@ai-sdk/anthropic");
     return anthropic(settings.claudeModel || "claude-sonnet-4-6");
   }
 
   if (provider === "gemini") {
-    return google(settings.geminiModel || "gemini-2.5-flash");
+    const { google } = await import("@ai-sdk/google");
     // Note: @ai-sdk/google reads GOOGLE_GENERATIVE_AI_API_KEY from env
     // or we can pass apiKey in settings
+    return google(settings.geminiModel || "gemini-2.5-flash");
   }
 
   if (provider === "openrouter") {
+    const { createOpenRouter } = await import("@openrouter/ai-sdk-provider");
     const openrouter = createOpenRouter({
       apiKey: settings.openrouterApiKey || process.env.OPENROUTER_API_KEY || "",
     });
@@ -51,31 +51,36 @@ export function getModel(): LanguageModel {
   }
 
   if (provider === "lm-studio") {
-    return createLMStudioProvider()(settings.lmStudioModel || "minimax/minimax-m2.5");
+    const lmstudio = await createLMStudioProvider();
+    return lmstudio(settings.lmStudioModel || "minimax/minimax-m2.5");
   }
 
+  const { anthropic } = await import("@ai-sdk/anthropic");
   return anthropic("claude-sonnet-4-6");
 }
 
 /**
  * Get a model with runtime override (from request body).
  */
-export function getModelWithOverride(
+export async function getModelWithOverride(
   provider?: string,
   modelId?: string,
-): LanguageModel {
+): Promise<LanguageModel> {
   const settings = getSettings();
   const effectiveProvider = provider || settings.llmProvider;
 
   if (effectiveProvider === "claude" && modelId) {
+    const { anthropic } = await import("@ai-sdk/anthropic");
     return anthropic(modelId);
   }
 
   if (effectiveProvider === "gemini" && modelId) {
+    const { google } = await import("@ai-sdk/google");
     return google(modelId);
   }
 
   if (effectiveProvider === "openrouter" && modelId) {
+    const { createOpenRouter } = await import("@openrouter/ai-sdk-provider");
     const openrouter = createOpenRouter({
       apiKey: settings.openrouterApiKey || process.env.OPENROUTER_API_KEY || "",
     });
@@ -83,7 +88,8 @@ export function getModelWithOverride(
   }
 
   if (effectiveProvider === "lm-studio" && modelId) {
-    return createLMStudioProvider()(modelId);
+    const lmstudio = await createLMStudioProvider();
+    return lmstudio(modelId);
   }
 
   return getModel();

@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useMemo, type ReactNode } from "react";
 import type { Project, SeqtrackChannel, Pattern } from "@/lib/midi/types";
 import type { TranscriptionOption } from "@/lib/transcription/types";
 import { createEmptyProject, createTrack } from "@/lib/midi/pattern-generators";
@@ -92,7 +92,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   );
 
   const updateBpm = useCallback((bpm: number) => {
-    setProjectState((prev) => ({ ...prev, bpm, updatedAt: new Date().toISOString() }));
+    setProjectState((prev) => {
+      const updated = { ...prev, bpm, updatedAt: new Date().toISOString() };
+      autoSave(updated);
+      return updated;
+    });
   }, []);
 
   const loadTranscription = useCallback((option: TranscriptionOption) => {
@@ -124,10 +128,13 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setProject(newProject);
   }, [setProject]);
 
+  const contextValue = useMemo(
+    () => ({ project, setProject, selectedChannel, setSelectedChannel, updatePattern, updateBpm, loadTranscription }),
+    [project, setProject, selectedChannel, setSelectedChannel, updatePattern, updateBpm, loadTranscription],
+  );
+
   return (
-    <ProjectContext.Provider
-      value={{ project, setProject, selectedChannel, setSelectedChannel, updatePattern, updateBpm, loadTranscription }}
-    >
+    <ProjectContext.Provider value={contextValue}>
       {children}
     </ProjectContext.Provider>
   );

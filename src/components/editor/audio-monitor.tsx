@@ -37,6 +37,8 @@ const WaveformCanvas = memo(function WaveformCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
   const lastFrameRef = useRef(0);
+  // Pre-allocate typed array to avoid GC pressure (~30 allocs/sec eliminated)
+  const dataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -59,7 +61,11 @@ const WaveformCanvas = memo(function WaveformCanvas({
       }
 
       const bufferLength = analyser.fftSize;
-      const data = new Uint8Array(bufferLength);
+      // Reuse buffer if size matches, otherwise allocate once
+      if (!dataRef.current || dataRef.current.length !== bufferLength) {
+        dataRef.current = new Uint8Array(bufferLength);
+      }
+      const data = dataRef.current;
       analyser.getByteTimeDomainData(data);
 
       const w = canvas.width;
@@ -153,6 +159,8 @@ const SpectrumCanvas = memo(function SpectrumCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
   const lastFrameRef = useRef(0);
+  // Pre-allocate typed array to avoid GC pressure (~30 allocs/sec eliminated)
+  const dataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -174,7 +182,12 @@ const SpectrumCanvas = memo(function SpectrumCanvas({
         return;
       }
 
-      const data = new Uint8Array(analyser.frequencyBinCount);
+      const binCount = analyser.frequencyBinCount;
+      // Reuse buffer if size matches, otherwise allocate once
+      if (!dataRef.current || dataRef.current.length !== binCount) {
+        dataRef.current = new Uint8Array(binCount);
+      }
+      const data = dataRef.current;
       analyser.getByteFrequencyData(data);
 
       const w = canvas.width;
@@ -340,20 +353,13 @@ export function AudioMonitor({ className }: AudioMonitorProps) {
     [setVolume],
   );
 
-  const handleStartCapture = useCallback(
-    async (deviceId?: string) => {
-      await startCapture(deviceId);
-    },
-    [startCapture],
-  );
-
   const handleToggleCapture = useCallback(async () => {
     if (isCapturing) {
       stopCapture();
     } else {
-      await handleStartCapture(selectedDeviceId ?? undefined);
+      await startCapture(selectedDeviceId ?? undefined);
     }
-  }, [isCapturing, stopCapture, handleStartCapture, selectedDeviceId]);
+  }, [isCapturing, stopCapture, startCapture, selectedDeviceId]);
 
   const handleDeviceChange = useCallback(
     async (value: string | null) => {
@@ -362,9 +368,9 @@ export function AudioMonitor({ className }: AudioMonitorProps) {
       if (isCapturing) {
         stopCapture();
       }
-      await handleStartCapture(value);
+      await startCapture(value);
     },
-    [isCapturing, stopCapture, handleStartCapture],
+    [isCapturing, stopCapture, startCapture],
   );
 
   // Collapsed view — thin bar

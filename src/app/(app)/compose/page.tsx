@@ -47,6 +47,9 @@ export default function ComposePage() {
       default:           return s.claudeModel     || "claude-sonnet-4-6";
     }
   });
+  const projectRef = useRef(project);
+  projectRef.current = project;
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentStep, setCurrentStep] = useState<number | null>(null);
   const [isEnhancing, setIsEnhancing] = useState(false);
@@ -195,16 +198,16 @@ export default function ComposePage() {
 
   const handleScaleRootChange = useCallback(
     (root: string) => {
-      setProject({ ...project, scaleRoot: root });
+      setProject({ ...projectRef.current, scaleRoot: root });
     },
-    [project, setProject],
+    [setProject],
   );
 
   const handleScaleNameChange = useCallback(
     (name: string) => {
-      setProject({ ...project, scaleName: name });
+      setProject({ ...projectRef.current, scaleName: name });
     },
-    [project, setProject],
+    [setProject],
   );
 
   // ── Stable callbacks for child components ───────────────────────

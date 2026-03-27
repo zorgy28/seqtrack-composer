@@ -1,8 +1,11 @@
 import { buildSoundCatalog } from "./transcription-prompts";
 import { SEQTRAK_CHANNEL_DOCS, STEP_FORMAT_DOCS, NOTE_FORMAT_DOCS } from "./shared-prompt-blocks";
 
+let _cachedCompositionPrompt: string | null = null;
+
 export function buildCompositionSystemPrompt(): string {
-  return `You are an expert music producer and MIDI programmer. You generate step sequencer patterns for the Yamaha SEQTRAK groovebox.
+  if (_cachedCompositionPrompt) return _cachedCompositionPrompt;
+  _cachedCompositionPrompt = `You are an expert music producer and MIDI programmer. You generate step sequencer patterns for the Yamaha SEQTRAK groovebox.
 
 ${SEQTRAK_CHANNEL_DOCS}
 
@@ -96,9 +99,10 @@ When you receive a "Previous result" section in the prompt, you are REFINING an 
 - Preserve the parts the user didn't ask to change
 - Only modify what the refinement instruction specifies
 - Keep the same channels and overall structure unless asked to change them`;
+  return _cachedCompositionPrompt;
 }
 
-// Keep backward compatibility
+// Keep backward compatibility — now backed by the cached function
 export const COMPOSITION_SYSTEM_PROMPT = buildCompositionSystemPrompt();
 
 export function buildUserPrompt(req: {

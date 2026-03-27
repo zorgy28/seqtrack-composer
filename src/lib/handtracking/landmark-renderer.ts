@@ -87,31 +87,32 @@ export function drawLandmarks(
   canvasHeight: number,
   mirror: boolean,
 ): void {
-  // Draw connections
+  // Draw all connections in a single batched path (reduces ~23 draw calls to 1)
   ctx.strokeStyle = COLOR_CONNECTION;
   ctx.lineWidth = CONNECTION_WIDTH;
+  ctx.beginPath();
   for (const [from, to] of HAND_CONNECTIONS) {
     const a = landmarks[from];
     const b = landmarks[to];
     if (!a || !b) continue;
 
-    ctx.beginPath();
     ctx.moveTo(scaleX(a.x, canvasWidth, mirror), scaleY(a.y, canvasHeight));
     ctx.lineTo(scaleX(b.x, canvasWidth, mirror), scaleY(b.y, canvasHeight));
-    ctx.stroke();
   }
+  ctx.stroke();
 
-  // Draw landmark dots
+  // Draw all landmark dots in a single batched path (reduces ~21 draw calls to 1)
   const color = handColor(handedness);
   ctx.fillStyle = color;
+  ctx.beginPath();
   for (const lm of landmarks) {
     const x = scaleX(lm.x, canvasWidth, mirror);
     const y = scaleY(lm.y, canvasHeight);
 
-    ctx.beginPath();
+    ctx.moveTo(x + LANDMARK_RADIUS, y);
     ctx.arc(x, y, LANDMARK_RADIUS, 0, Math.PI * 2);
-    ctx.fill();
   }
+  ctx.fill();
 }
 
 // ─── drawGestureIndicators ──────────────────────────────────────

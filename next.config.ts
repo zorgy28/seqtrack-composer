@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  poweredByHeader: false,
+  serverExternalPackages: ["webmidi", "@mediapipe/tasks-vision"],
 };
 
 export default nextConfig;

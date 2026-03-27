@@ -183,18 +183,18 @@ export function playPatternLooped(
 // but Web Workers maintain full-speed timing regardless.
 // ---------------------------------------------------------------------------
 
-let sharedWorker: Worker | null = null;
-
-function getTimingWorker(): Worker | null {
+/**
+ * Create a fresh Worker instance for one playback session.
+ * A new instance is created per call to avoid onmessage hijacking
+ * when playPatternLoopedWithCursor is called concurrently.
+ */
+function createTimingWorker(): Worker | null {
   if (typeof window === "undefined") return null;
-  if (!sharedWorker) {
-    try {
-      sharedWorker = new Worker("/timing-worker.js");
-    } catch {
-      return null; // fallback to setInterval
-    }
+  try {
+    return new Worker("/timing-worker.js");
+  } catch {
+    return null; // fallback to setInterval
   }
-  return sharedWorker;
 }
 
 /**
@@ -223,29 +223,35 @@ export function playPatternLoopedWithCursor(
   const output = getOutputPort(deviceId);
   if (!output) return { cancel: () => {}, seek: () => {} };
 
-  const sMs = stepDurationMs(bpm);
-
   let currentStep = 0;
   let cancelled = false;
+
+  // Track the last interval posted to the worker so we only re-post when BPM changes.
+  let lastIntervalMs = stepDurationMs(bpm);
 
   function tick() {
     if (cancelled) return;
 
     onStep(currentStep);
 
-    // Read live state if getter provided, otherwise use initial tracks
-    const liveTracks = getState?.().tracks ?? tracks.map((t) => ({ ...t, muted: false, volume: 127 }));
+    // M6: Re-read live BPM every tick so tempo changes take effect immediately.
+    const liveState = getState?.();
+    const liveBpm = liveState?.bpm ?? bpm;
+    const sMs = stepDurationMs(liveBpm);
 
-    // Find the live total steps (pattern length may have changed)
+    // Read live tracks; fall back to initial snapshot if no getter provided.
+    const liveTracks = liveState?.tracks ?? tracks.map((t) => ({ ...t, muted: false, volume: 127 }));
+
+    // Find the live total steps (pattern length may have changed).
     const liveTotalSteps = Math.max(16, ...liveTracks.map((t) => t.pattern.bars * STEPS_PER_BAR));
 
-    // Play all notes at this step across all non-muted tracks
+    // Play all notes at this step across all non-muted tracks.
     for (const { pattern, channel, muted, volume } of liveTracks) {
       if (muted) continue;
 
       for (const note of pattern.notes) {
         if (note.step === currentStep % liveTotalSteps) {
-          // Scale note velocity by track volume (both 0-127)
+          // Scale note velocity by track volume (both 0-127).
           const scaledVelocity = (note.velocity / 127) * (volume / 127);
           output.playNote(note.pitch, {
             channels: channel,
@@ -258,23 +264,29 @@ export function playPatternLoopedWithCursor(
     }
 
     currentStep = (currentStep + 1) % liveTotalSteps;
+
+    // M6: If BPM changed, update the worker's firing interval dynamically.
+    if (worker && sMs !== lastIntervalMs) {
+      lastIntervalMs = sMs;
+      worker.postMessage({ type: "setInterval", intervalMs: sMs });
+    }
   }
 
-  // Try worker-based timing (background-tab safe), fall back to setInterval
-  const worker = getTimingWorker();
+  // M5: Create a fresh Worker per playback session to avoid onmessage hijacking.
+  const worker = createTimingWorker();
   let fallbackInterval: ReturnType<typeof setInterval> | null = null;
 
   if (worker) {
     worker.onmessage = () => tick();
-    worker.postMessage({ type: "start", intervalMs: sMs });
+    worker.postMessage({ type: "start", intervalMs: lastIntervalMs });
   } else {
-    fallbackInterval = setInterval(tick, sMs);
+    fallbackInterval = setInterval(tick, lastIntervalMs);
   }
 
-  // Fire initial step
+  // Fire initial step.
   onStep(0);
 
-  // Request Wake Lock to prevent OS suspension during playback
+  // Request Wake Lock to prevent OS suspension during playback.
   let wakeLock: WakeLockSentinel | null = null;
   if ("wakeLock" in navigator) {
     navigator.wakeLock.request("screen").then(
@@ -287,8 +299,9 @@ export function playPatternLoopedWithCursor(
     cancel: () => {
       cancelled = true;
       if (worker) {
+        // M5: Stop and terminate this session's dedicated worker instance.
         worker.postMessage({ type: "stop" });
-        worker.onmessage = null;
+        worker.terminate();
       }
       if (fallbackInterval !== null) clearInterval(fallbackInterval);
       wakeLock?.release();

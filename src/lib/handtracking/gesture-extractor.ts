@@ -6,6 +6,7 @@
  */
 
 import type { NormalizedLandmark, HandLandmarks, GestureAxes } from "./types";
+import { clamp } from "@/lib/midi/note-utils";
 
 // ─── Landmark Constants ──────────────────────────────────────
 // Named indices for all 21 MediaPipe hand landmarks.
@@ -40,13 +41,6 @@ export const PINKY_TIP = 20;
 // Finger base (MCP) and tip indices, ordered by finger
 const FINGER_MCP = [THUMB_MCP, INDEX_MCP, MIDDLE_MCP, RING_MCP, PINKY_MCP] as const;
 const FINGER_TIP = [THUMB_TIP, INDEX_TIP, MIDDLE_TIP, RING_TIP, PINKY_TIP] as const;
-
-// ─── Helpers ─────────────────────────────────────────────────
-
-/** Clamp a number to [min, max]. */
-function clamp(v: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, v));
-}
 
 // ─── Core Functions ──────────────────────────────────────────
 

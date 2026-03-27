@@ -22,7 +22,7 @@ export async function POST(request: Request) {
     );
 
     const output = await generateWithFallback({
-      model: getModelWithOverride(modelProvider, modelId),
+      model: await getModelWithOverride(modelProvider, modelId),
       schema: enhanceResultSchema,
       system: buildEnhanceSystemPrompt(action as EnhanceAction),
       prompt: buildEnhanceUserPrompt(project, instruction, action as EnhanceAction),

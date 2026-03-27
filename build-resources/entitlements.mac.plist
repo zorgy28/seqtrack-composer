@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- V8 JIT compiler requires this -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <!-- V8 and MediaPipe WASM runtime -->
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <!-- Audio monitor: getUserMedia for USB audio capture -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+  <!-- Hand tracking: getUserMedia for webcam -->
+  <key>com.apple.security.device.camera</key>
+  <true/>
+  <!-- Loading native node addons and WASM modules -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <!-- Network access for AI API calls (Claude, OpenRouter, etc.) -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+</dict>
+</plist>

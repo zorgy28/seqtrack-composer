@@ -19,7 +19,7 @@ export async function POST(request: Request) {
     console.log(`[compose] provider=${modelProvider ?? "claude"} bars=${bars ?? 1} refine=${!!previousResult}`);
 
     const output = await generateWithFallback({
-      model: getModelWithOverride(modelProvider, modelId),
+      model: await getModelWithOverride(modelProvider, modelId),
       schema: compositionResultSchema,
       system: buildCompositionSystemPrompt(),
       prompt: buildUserPrompt({ prompt, bpm, scaleRoot, scaleName, bars, swing,

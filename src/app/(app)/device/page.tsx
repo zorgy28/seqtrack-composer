@@ -1,27 +1,13 @@
 "use client";
 
 import { useMidiConnection } from "@/hooks/use-midi-connection";
-import { ALL_CHANNELS, SEQTRAK_TRACKS } from "@/lib/midi/constants";
+import { ALL_CHANNELS, SEQTRAK_TRACKS, getTrackSolidClass } from "@/lib/midi/constants";
 import type { SeqtrackChannel, ChannelTestResult } from "@/lib/midi/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-
-const TRACK_COLORS: Record<string, string> = {
-  red: "bg-red-500",
-  yellow: "bg-yellow-500",
-  fuchsia: "bg-fuchsia-500",
-  cyan: "bg-cyan-500",
-  blue: "bg-blue-500",
-  green: "bg-green-500",
-  slate: "bg-slate-400",
-  purple: "bg-purple-500",
-  teal: "bg-teal-500",
-  amber: "bg-amber-500",
-  emerald: "bg-emerald-500",
-};
 
 function StatusDot({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -46,7 +32,7 @@ function ChannelTestRow({
   onTest: () => void;
 }) {
   const track = SEQTRAK_TRACKS[channel];
-  const colorClass = TRACK_COLORS[track.color] ?? "bg-gray-500";
+  const colorClass = getTrackSolidClass(channel);
 
   return (
     <div className="flex items-center gap-3 py-2 px-3 rounded-md hover:bg-accent/50 transition-colors">

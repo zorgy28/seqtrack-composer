@@ -80,8 +80,9 @@ function OpenRouterBrowser({
 
   useEffect(() => {
     let cancelled = false;
-    const params = apiKey ? `?key=${encodeURIComponent(apiKey)}` : "";
-    fetch(`/api/openrouter-models${params}`)
+    fetch("/api/openrouter-models", {
+      headers: apiKey ? { "x-api-key": apiKey } : {},
+    })
       .then((r) => r.ok ? r.json() : { models: [] })
       .then((d) => { if (!cancelled) setModels(d.models ?? []); })
       .catch(() => {})

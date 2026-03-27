@@ -351,7 +351,7 @@ async function handlePDF(
       {
         method: "POST",
         headers: {
-          "X-Api-Key": "GIgKjX+a6gP41fRuOsSrGrveqeV+afhY4rWFcjQ0F2g=",
+          "X-Api-Key": process.env.DOCLING_API_KEY ?? "GIgKjX+a6gP41fRuOsSrGrveqeV+afhY4rWFcjQ0F2g=",
         },
         body: doclingForm,
         signal: AbortSignal.timeout(60_000), // 60 second timeout for Docling
@@ -479,7 +479,7 @@ async function transcribeWithVision(
   doclingContext: string | null,
 ): Promise<Response> {
   const { generateText } = await import("ai");
-  const model = getModelWithOverride(
+  const model = await getModelWithOverride(
     modelProvider ?? undefined,
     modelId ?? undefined,
   );

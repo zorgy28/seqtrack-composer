@@ -35,6 +35,8 @@ export function useAudioMonitor(): UseAudioMonitorReturn {
   const stateRef = useRef<AudioMonitorState | null>(null);
   const rafRef = useRef<number | null>(null);
   const lastLevelUpdateRef = useRef(0);
+  // Pre-allocate typed array for RMS computation (avoids ~30 GC allocs/sec)
+  const levelDataRef = useRef<Float32Array<ArrayBuffer> | null>(null);
 
   // Enumerate audio input devices on mount
   useEffect(() => {
@@ -81,7 +83,11 @@ export function useAudioMonitor(): UseAudioMonitorReturn {
         lastLevelUpdateRef.current = now;
         const s = stateRef.current;
         if (s) {
-          const data = new Float32Array(s.analyser.fftSize);
+          const fftSize = s.analyser.fftSize;
+          if (!levelDataRef.current || levelDataRef.current.length !== fftSize) {
+            levelDataRef.current = new Float32Array(fftSize);
+          }
+          const data = levelDataRef.current;
           s.analyser.getFloatTimeDomainData(data);
           let sum = 0;
           for (let i = 0; i < data.length; i++) {
