@@ -7,7 +7,7 @@ import { useMidiConnection } from "@/hooks/use-midi-connection";
 import { Button } from "@/components/ui/button";
 
 export function TransportBar() {
-  const { isPlaying, currentStep, totalSteps, play, stop, seek, recordState, recordingElapsedMs, armRecord, startRecord, stopRecord, discardRecord } = useTransport();
+  const { isPlaying, currentStep, totalSteps, play, stop, seek, recordState, recordingElapsedMs, armRecord, startRecord, stopRecord } = useTransport();
   const { device } = useMidiConnection();
 
   if (!device) return null;
