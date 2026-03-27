@@ -10,8 +10,6 @@ export function TransportBar() {
   const { isPlaying, currentStep, totalSteps, play, stop, seek, recordState, recordingElapsedMs, armRecord, startRecord, stopRecord } = useTransport();
   const { device } = useMidiConnection();
 
-  if (!device) return null;
-
   return (
     <div className="flex items-center gap-2 px-3 py-1 border-t border-border bg-card/50 shrink-0">
       {/* Record button */}
@@ -32,7 +30,7 @@ export function TransportBar() {
                 ? armRecord
                 : undefined
         }
-        disabled={recordState === "stopping"}
+        disabled={!device || recordState === "stopping"}
       >
         <Circle
           className={cn(
@@ -50,6 +48,7 @@ export function TransportBar() {
         variant={isPlaying ? "destructive" : "default"}
         className="h-6 w-6"
         onClick={isPlaying ? stop : play}
+        disabled={!device && !isPlaying}
       >
         {isPlaying ? <Square className="size-3" /> : <Play className="size-3" />}
       </Button>
