@@ -1,4 +1,5 @@
 import { createStore, useStore } from "zustand";
+import { useShallow } from "zustand/shallow";
 import { createContext, useContext } from "react";
 import type { Project, SeqtrackChannel, Pattern, Track } from "@/lib/midi/types";
 import type { TranscriptionOption } from "@/lib/transcription/types";
@@ -192,7 +193,7 @@ export function useTrack(channel: SeqtrackChannel): Track {
  */
 export function useProjectMeta() {
   const store = useProjectStore();
-  return useStore(store, (s) => ({
+  return useStore(store, useShallow((s) => ({
     id: s.project.id,
     name: s.project.name,
     bpm: s.project.bpm,
@@ -202,15 +203,16 @@ export function useProjectMeta() {
     scenes: s.project.scenes,
     createdAt: s.project.createdAt,
     updatedAt: s.project.updatedAt,
-  }));
+  })));
 }
 
 /** Just the selected channel + setter. */
 export function useSelectedChannel() {
   const store = useProjectStore();
-  const selectedChannel = useStore(store, (s) => s.selectedChannel);
-  const setSelectedChannel = useStore(store, (s) => s.setSelectedChannel);
-  return { selectedChannel, setSelectedChannel };
+  return useStore(store, useShallow((s) => ({
+    selectedChannel: s.selectedChannel,
+    setSelectedChannel: s.setSelectedChannel,
+  })));
 }
 
 /** Just the updatePattern action — stable reference, never causes re-renders on its own. */
