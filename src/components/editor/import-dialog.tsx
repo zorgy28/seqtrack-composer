@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useProject } from "@/providers/project-provider";
 import { useMidiConnection } from "@/hooks/use-midi-connection";
+import { useSoundControl } from "@/hooks/use-sound-control";
 import { SEQTRAK_TRACKS, ALL_CHANNELS, STEPS_PER_BAR, getTrackSolidClass } from "@/lib/midi/constants";
 import type { SeqtrackChannel } from "@/lib/midi/types";
 import type { ImportResult } from "@/lib/import/types";
@@ -59,6 +60,7 @@ interface ImportDialogProps {
 export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const { project, setProject } = useProject();
   const { device } = useMidiConnection();
+  const { selectPreset } = useSoundControl();
 
   // ── State ───────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<TabId>("sheet");
@@ -153,30 +155,28 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
       updated.tracks = updatedTracks;
       setProject({ ...updated, updatedAt: new Date().toISOString() });
 
-      // Send program changes to SEQTRAK so imported sounds take effect
-      if (device) {
-        const { selectSound } = await import("@/lib/midi/program-change");
-        const { findPresetById } = await import("@/lib/midi/sound-library");
-        const { gmDrumKitPresets } = await import("@/lib/import/gm-to-seqtrack");
+      // Apply sound presets — uses selectPreset which both sends MIDI
+      // program changes AND updates the UI sound state
+      const { findPresetById } = await import("@/lib/midi/sound-library");
+      const { gmDrumKitPresets } = await import("@/lib/import/gm-to-seqtrack");
 
-        // Apply melodic presets
-        for (const { channel, presetId } of patterns) {
-          if (!presetId) continue;
-          const preset = findPresetById(presetId);
-          if (preset) {
-            selectSound(device.id, channel, preset);
-          }
+      // Apply melodic presets (Ch 8-10)
+      for (const { channel, presetId } of patterns) {
+        if (!presetId) continue;
+        const preset = findPresetById(presetId);
+        if (preset) {
+          await selectPreset(channel, preset);
         }
+      }
 
-        // Apply drum kit presets based on detected GM kit
-        const drumInfo = importResult.trackInfos?.find((t) => t.isDrum);
-        if (drumInfo) {
-          const drumPresets = gmDrumKitPresets(drumInfo.gmProgram);
-          for (const [ch, pid] of Object.entries(drumPresets)) {
-            const preset = findPresetById(pid);
-            if (preset) {
-              selectSound(device.id, Number(ch) as SeqtrackChannel, preset);
-            }
+      // Apply drum kit presets (Ch 1-7) based on detected GM kit
+      const drumInfo = importResult.trackInfos?.find((t) => t.isDrum);
+      if (drumInfo) {
+        const drumPresets = gmDrumKitPresets(drumInfo.gmProgram);
+        for (const [ch, pid] of Object.entries(drumPresets)) {
+          const preset = findPresetById(pid);
+          if (preset) {
+            await selectPreset(Number(ch) as SeqtrackChannel, preset);
           }
         }
       }
@@ -187,7 +187,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
     } finally {
       setLoading(false);
     }
-  }, [importResult, project, bars, presetSelections, setProject, onOpenChange]);
+  }, [importResult, project, bars, presetSelections, setProject, selectPreset, onOpenChange]);
 
   // ── Dialog close ───────────────────────────────────────────
   const handleClose = useCallback((nextOpen: boolean) => {
