@@ -30,6 +30,9 @@ let _cachedComplete: SoundPreset[] | null = null;
  */
 let _presetLookup: Map<string, SoundPreset> | null = null;
 
+/** O(1) lookup by preset numeric ID. Lazily built on first call. */
+let _idLookup: Map<number, SoundPreset> | null = null;
+
 function buildPresetKey(bankMSB: number, bankLSB: number, programNumber: number): string {
   return `${bankMSB}-${bankLSB}-${programNumber}`;
 }
@@ -63,6 +66,7 @@ export function getAllPresets(): SoundPreset[] {
 export function invalidatePresetCache(): void {
   _cachedComplete = null;
   _presetLookup = null;
+  _idLookup = null;
 }
 
 // ─── Query Functions ────────────────────────────────────────────
@@ -118,4 +122,17 @@ export function findPresetByBankPC(
   programNumber: number,
 ): SoundPreset | null {
   return getPresetLookup().get(buildPresetKey(bankMSB, bankLSB, programNumber)) ?? null;
+}
+
+function getIdLookup(): Map<number, SoundPreset> {
+  if (_idLookup) return _idLookup;
+  const map = new Map<number, SoundPreset>();
+  for (const p of getAllPresets()) map.set(p.id, p);
+  _idLookup = map;
+  return map;
+}
+
+/** Find a preset by its numeric ID (1-2032 for sounds, 1-392 for sampler) */
+export function findPresetById(id: number): SoundPreset | null {
+  return getIdLookup().get(id) ?? null;
 }

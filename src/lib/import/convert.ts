@@ -13,16 +13,18 @@ import { createEmptyPattern } from "@/lib/midi/pattern-generators";
  *   3. Run quantizeEvents() to snap to the 16-step grid
  *   4. Wrap in a Pattern with the correct bar count
  *
- * @param result - The output of any import parser
- * @param bpm    - Project BPM (used for time-to-step conversion)
- * @param bars   - Desired pattern length in bars (1-8)
- * @returns Array of { channel, pattern } for every channel that has notes
+ * @param result           - The output of any import parser
+ * @param bpm              - Project BPM (used for time-to-step conversion)
+ * @param bars             - Desired pattern length in bars (1-8)
+ * @param presetSelections - Optional map of channel → presetId chosen by the user in the mapping UI
+ * @returns Array of { channel, pattern, presetId? } for every channel that has notes
  */
 export function importToPatterns(
   result: ImportResult,
   bpm: number,
   bars: number,
-): Array<{ channel: SeqtrackChannel; pattern: Pattern }> {
+  presetSelections?: Partial<Record<SeqtrackChannel, number>>,
+): Array<{ channel: SeqtrackChannel; pattern: Pattern; presetId?: number }> {
   // Group notes by channel
   const byChannel = new Map<number, typeof result.notes>();
 
@@ -33,7 +35,7 @@ export function importToPatterns(
     byChannel.set(ch, existing);
   }
 
-  const output: Array<{ channel: SeqtrackChannel; pattern: Pattern }> = [];
+  const output: Array<{ channel: SeqtrackChannel; pattern: Pattern; presetId?: number }> = [];
 
   for (const [ch, importedNotes] of byChannel) {
     // Validate channel range (SEQTRAK uses 1-11)
@@ -64,9 +66,11 @@ export function importToPatterns(
       notes: quantizedNotes,
     };
 
+    const seqCh = ch as SeqtrackChannel;
     output.push({
-      channel: ch as SeqtrackChannel,
+      channel: seqCh,
       pattern: patternWithNotes,
+      presetId: presetSelections?.[seqCh],
     });
   }
 

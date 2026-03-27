@@ -66,6 +66,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const [instrument, setInstrument] = useState("Piano");
   const [targetChannel, setTargetChannel] = useState<SeqtrackChannel>(9);
   const [bars, setBars] = useState(4);
+  const [presetSelections, setPresetSelections] = useState<Partial<Record<SeqtrackChannel, number>>>({});
 
   // ── Instrument -> channel auto-selection ────────────────────
   const handleInstrumentChange = useCallback((name: string) => {
@@ -129,7 +130,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
     setLoading(true);
     try {
       const { importToPatterns } = await import("@/lib/import/convert");
-      const patterns = importToPatterns(importResult, project.bpm, bars);
+      const patterns = importToPatterns(importResult, project.bpm, bars, presetSelections);
 
       const updated = { ...project };
       const updatedTracks = { ...updated.tracks };
@@ -149,7 +150,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
     } finally {
       setLoading(false);
     }
-  }, [importResult, project, bars, setProject, onOpenChange]);
+  }, [importResult, project, bars, presetSelections, setProject, onOpenChange]);
 
   // ── Dialog close ───────────────────────────────────────────
   const handleClose = useCallback((nextOpen: boolean) => {
@@ -157,6 +158,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
     if (!nextOpen) {
       setImportResult(null);
       setError(null);
+      setPresetSelections({});
     }
     onOpenChange(nextOpen);
   }, [onOpenChange, loading]);
@@ -165,6 +167,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
     setImportResult(null);
     setError(null);
     setLoading(false);
+    setPresetSelections({});
     onOpenChange(false);
   }, [onOpenChange]);
 
@@ -173,6 +176,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
     setActiveTab(tab);
     setImportResult(null);
     setError(null);
+    setPresetSelections({});
   }, []);
 
   // ── Render ─────────────────────────────────────────────────
@@ -244,6 +248,8 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
               onResult={handleResult}
               onError={handleError}
               disabled={loading}
+              importResult={importResult}
+              onPresetSelectionsChange={setPresetSelections}
             />
           )}
 

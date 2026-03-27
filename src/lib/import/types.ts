@@ -10,12 +10,25 @@ export interface ImportedNote {
   channel?: number; // SEQTRAK channel hint (1-11)
 }
 
+export interface ImportTrackInfo {
+  originalChannel: number;      // MIDI channel from file (0-indexed from @tonejs/midi)
+  seqtrackChannel: SeqtrackChannel; // Mapped SEQTRAK channel
+  name: string;                 // Track name or GM instrument name
+  gmProgram: number;            // GM program number (0-127)
+  gmFamily: string;             // Instrument family from @tonejs/midi
+  noteCount: number;
+  pitchRange: [number, number];
+  suggestedPresetId: number | null;
+  isDrum: boolean;
+}
+
 export interface ImportResult {
   notes: ImportedNote[];
   bpm?: number;
   key?: string;
   name?: string;
   channels: number[];
+  trackInfos?: ImportTrackInfo[];
 }
 
 // ---- Instrument pitch-range presets ------------------------------------
