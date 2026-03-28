@@ -45,15 +45,18 @@ function ToggleButton({
   active,
   label,
   onClick,
+  title,
 }: {
   active: boolean;
   label: string;
   onClick: () => void;
+  title?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      title={title}
       className={cn(
         "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
         active
@@ -228,6 +231,84 @@ function OllamaModelSelector({
             className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </>
+      )}
+    </div>
+  );
+}
+
+function ZaiModelSelector({
+  apiKey,
+  value,
+  onChange,
+}: {
+  apiKey: string;
+  value: string;
+  onChange: (model: string) => void;
+}) {
+  const [models, setModels] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [reachable, setReachable] = useState<boolean | null>(null);
+
+  const fetchModels = useCallback(async () => {
+    if (!apiKey) { setReachable(null); setModels([]); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/models?url=${encodeURIComponent("https://api.z.ai/api/paas/v4")}&type=zai&apiKey=${encodeURIComponent(apiKey)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setModels((data.models ?? []).map((m: { id: string }) => m.id));
+        setReachable(data.reachable ?? false);
+      } else {
+        setReachable(false);
+      }
+    } catch {
+      setReachable(false);
+    } finally {
+      setLoading(false);
+    }
+  }, [apiKey]);
+
+  useEffect(() => {
+    fetchModels();
+  }, [fetchModels]);
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2">
+        <FieldLabel hint="GLM models from Z.AI. Enter your API key above to see available models.">
+          Z.AI Model
+        </FieldLabel>
+        {reachable !== null && (
+          <span className={cn("size-2 rounded-full", reachable ? "bg-green-500" : "bg-red-500")} title={reachable ? "Connected" : "Unreachable"} />
+        )}
+      </div>
+      {loading ? (
+        <p className="text-xs text-muted-foreground">Loading models...</p>
+      ) : models.length > 0 ? (
+        <div className="flex flex-wrap gap-1">
+          {models.map((m) => (
+            <button
+              key={m}
+              onClick={() => onChange(m)}
+              className={cn(
+                "rounded-lg border px-3 py-1.5 text-xs transition-colors",
+                value === m
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-input text-muted-foreground hover:border-foreground/30"
+              )}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="glm-5"
+          className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+        />
       )}
     </div>
   );
@@ -560,12 +641,13 @@ export default function SettingsPage() {
           <div className="space-y-1.5">
             <FieldLabel hint="Choose your AI provider. Claude uses the Anthropic API key from .env.local. Others need their own key.">Provider</FieldLabel>
             <div className="flex flex-wrap gap-2">
-              {(["claude", "gemini", "openrouter", "lm-studio", "ollama"] as LlmProvider[]).map((p) => (
+              {(["claude", "gemini", "openrouter", "lm-studio", "ollama", "zai"] as LlmProvider[]).map((p) => (
                 <ToggleButton
                   key={p}
                   active={settings.llmProvider === p}
-                  label={{ claude: "Claude", gemini: "Gemini", openrouter: "OpenRouter", "lm-studio": "LM Studio", ollama: "Ollama" }[p]}
+                  label={{ claude: "Claude", gemini: "Gemini", openrouter: "OpenRouter", "lm-studio": "LM Studio", ollama: "Ollama", zai: "Z.AI" }[p]}
                   onClick={() => handleChange({ llmProvider: p })}
+                  title={{ claude: "Anthropic Claude -- cloud API", gemini: "Google Gemini -- cloud API", openrouter: "OpenRouter -- multi-provider gateway", "lm-studio": "LM Studio -- local models", ollama: "Ollama -- local models", zai: "Z.AI GLM -- cloud API" }[p]}
                 />
               ))}
             </div>
@@ -725,6 +807,37 @@ export default function SettingsPage() {
                 value={settings.ollamaModel}
                 onChange={(model) => handleChange({ ollamaModel: model })}
               />
+            </div>
+          )}
+
+          {/* ---- Z.AI ---- */}
+          {settings.llmProvider === "zai" && (
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <FieldLabel>API Key</FieldLabel>
+                <input
+                  type="password"
+                  value={settings.zaiApiKey}
+                  onChange={(e) => handleChange({ zaiApiKey: e.target.value })}
+                  placeholder="API key from z.ai"
+                  className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <p className="text-[10px] text-muted-foreground/60">
+                  Get your key at{" "}
+                  <a href="https://z.ai/manage-apikey/apikey-list" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                    z.ai/manage-apikey
+                  </a>
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <FieldLabel>Model</FieldLabel>
+                <ZaiModelSelector
+                  apiKey={settings.zaiApiKey}
+                  value={settings.zaiModel}
+                  onChange={(model) => handleChange({ zaiModel: model })}
+                />
+              </div>
             </div>
           )}
 

@@ -5,7 +5,7 @@
 const STORAGE_KEY = "seqtrack-settings";
 
 export type PlaybackMode = "device" | "internal" | "both";
-export type LlmProvider = "claude" | "gemini" | "openrouter" | "lm-studio" | "ollama";
+export type LlmProvider = "claude" | "gemini" | "openrouter" | "lm-studio" | "ollama" | "zai";
 export type StepGridSize = "compact" | "normal" | "large";
 export type StemModel = "htdemucs" | "htdemucs_6s" | "htdemucs_ft";
 
@@ -27,6 +27,8 @@ export interface AppSettings {
   lmStudioModel: string;
   ollamaUrl: string;
   ollamaModel: string;
+  zaiApiKey: string;
+  zaiModel: string;
   doclingUrl: string;
   doclingApiKey: string;
   temperature: number; // 0-1
@@ -69,6 +71,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   lmStudioModel: "minimax/minimax-m2.5",
   ollamaUrl: "http://localhost:11434",
   ollamaModel: "",
+  zaiApiKey: "",
+  zaiModel: "glm-5",
   doclingUrl: "",
   doclingApiKey: "",
   temperature: 0.3,
@@ -146,6 +150,8 @@ export function buildProviderConfig(settings: AppSettings): ProviderConfig {
       return { provider: "lm-studio", modelId: settings.lmStudioModel, baseUrl: settings.lmStudioUrl };
     case "ollama":
       return { provider: "ollama", modelId: settings.ollamaModel, baseUrl: settings.ollamaUrl };
+    case "zai":
+      return { provider: "zai", modelId: settings.zaiModel, apiKey: settings.zaiApiKey, baseUrl: "https://api.z.ai/api/paas/v4" };
     default:
       return { provider: "claude", modelId: settings.claudeModel, apiKey: settings.claudeApiKey };
   }

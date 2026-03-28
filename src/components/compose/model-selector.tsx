@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { getSettings } from "@/lib/settings";
 import { RefreshCw } from "lucide-react";
 
-export type LLMProvider = "claude" | "gemini" | "openrouter" | "lm-studio" | "ollama";
+export type LLMProvider = "claude" | "gemini" | "openrouter" | "lm-studio" | "ollama" | "zai";
 
 export interface ModelSelection {
   provider: LLMProvider;
@@ -33,6 +33,7 @@ const PROVIDER_LABELS: Record<LLMProvider, string> = {
   openrouter:   "OpenRouter",
   "lm-studio":  "LM Studio",
   ollama:       "Ollama",
+  zai:          "Z.AI",
 };
 
 const OR_POPULAR = [
@@ -206,11 +207,15 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
   useEffect(() => {
     let cancelled = false;
     const isOllama = value.provider === "ollama";
-    const url = isOllama
-      ? (settings.ollamaUrl || "http://localhost:11434")
-      : (settings.lmStudioUrl || "http://localhost:1234/v1");
-    const type = isOllama ? "ollama" : "lmstudio";
-    fetch(`/api/models?url=${encodeURIComponent(url)}&type=${type}`)
+    const isZai = value.provider === "zai";
+    const url = isZai
+      ? "https://api.z.ai/api/paas/v4"
+      : isOllama
+        ? (settings.ollamaUrl || "http://localhost:11434")
+        : (settings.lmStudioUrl || "http://localhost:1234/v1");
+    const type = isZai ? "zai" : isOllama ? "ollama" : "lmstudio";
+    const apiKeyParam = isZai && settings.zaiApiKey ? `&apiKey=${encodeURIComponent(settings.zaiApiKey)}` : "";
+    fetch(`/api/models?url=${encodeURIComponent(url)}&type=${type}${apiKeyParam}`)
       .then((r) => r.ok ? r.json() : { models: [], reachable: false })
       .then((d) => {
         if (!cancelled) {
@@ -221,7 +226,7 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
       .catch(() => { if (!cancelled) setLmReachable(false); });
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.lmStudioUrl, settings.ollamaUrl, value.provider]);
+  }, [settings.lmStudioUrl, settings.ollamaUrl, settings.zaiApiKey, value.provider]);
 
   function selectProvider(p: LLMProvider) {
     if (p === value.provider) return;
@@ -238,6 +243,12 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
       case "lm-studio":
         onChange({ provider: p, model: lmModels[0]?.id ?? settings.lmStudioModel ?? "" });
         break;
+      case "ollama":
+        onChange({ provider: p, model: settings.ollamaModel || "" });
+        break;
+      case "zai":
+        onChange({ provider: p, model: settings.zaiModel || "glm-5" });
+        break;
     }
   }
 
@@ -248,7 +259,7 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
     return shortLabel("lm-studio", value.model) || "Local GPU";
   }
 
-  const providers: LLMProvider[] = ["claude", "gemini", "openrouter", "lm-studio"];
+  const providers: LLMProvider[] = ["claude", "gemini", "openrouter", "lm-studio", "ollama", "zai"];
   const lmDisabled = lmReachable === false || (lmReachable === true && lmModels.length === 0);
 
   return (

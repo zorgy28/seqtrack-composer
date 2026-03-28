@@ -61,6 +61,16 @@ export async function getModelFromConfig(config: ProviderConfig): Promise<Langua
     return ollama(config.modelId || "");
   }
 
+  if (provider === "zai") {
+    const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
+    const zai = createOpenAICompatible({
+      name: "zai",
+      baseURL: config.baseUrl || "https://api.z.ai/api/paas/v4",
+      headers: { Authorization: `Bearer ${config.apiKey || ""}` },
+    });
+    return zai(config.modelId || "glm-5");
+  }
+
   // Fallback: Claude with no explicit key (will use ANTHROPIC_API_KEY env if set)
   const { createAnthropic } = await import("@ai-sdk/anthropic");
   const anthropic = createAnthropic({ apiKey: config.apiKey || undefined });

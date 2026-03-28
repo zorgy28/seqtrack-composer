@@ -4,7 +4,8 @@ export const maxDuration = 30;
  * Proxy endpoint to list available local models (LM Studio or Ollama).
  * Query params:
  *   - url: base URL of the server (default: http://localhost:1234/v1)
- *   - type: "lmstudio" | "ollama" (default: "lmstudio")
+ *   - type: "lmstudio" | "ollama" | "zai" (default: "lmstudio")
+ *   - apiKey: API key for authenticated endpoints (Z.AI)
  *
  * Returns { models: [{ id: string }], reachable: boolean }
  */
@@ -12,8 +13,20 @@ export async function GET(request: Request) {
   const reqUrl = new URL(request.url);
   const baseUrl = reqUrl.searchParams.get("url") || "http://localhost:1234/v1";
   const type = reqUrl.searchParams.get("type") || "lmstudio";
+  const apiKey = reqUrl.searchParams.get("apiKey") || "";
 
   try {
+    if (type === "zai") {
+      const res = await fetch(`${baseUrl}/models`, {
+        headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) return Response.json({ models: [], reachable: false });
+      const data = await res.json();
+      const models = (data.data ?? []).map((m: { id: string }) => ({ id: m.id }));
+      return Response.json({ models, reachable: true });
+    }
+
     if (type === "ollama") {
       // Ollama uses /api/tags endpoint
       const ollamaBase = baseUrl.replace(/\/v1\/?$/, "");
