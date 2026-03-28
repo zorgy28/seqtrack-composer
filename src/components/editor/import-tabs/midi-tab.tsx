@@ -238,8 +238,8 @@ function TrackRow({ track, selectedPresetId, onPresetChange }: TrackRowProps) {
           <span className="text-muted-foreground italic">Auto-mapped</span>
         ) : (
           <Select
-            value={selectedPresetId}
-            onValueChange={(val) => onPresetChange(track.seqtrackChannel, val as number)}
+            value={selectedPresetId != null ? String(selectedPresetId) : ""}
+            onValueChange={(val) => val && onPresetChange(track.seqtrackChannel, parseInt(val, 10))}
           >
             <SelectTrigger size="sm" className="h-6 min-w-0 w-full text-xs">
               <SelectValue>
@@ -251,7 +251,7 @@ function TrackRow({ track, selectedPresetId, onPresetChange }: TrackRowProps) {
                 <SelectGroup key={category}>
                   <SelectLabel>{category}</SelectLabel>
                   {presets.map((preset) => (
-                    <SelectItem key={preset.id} value={preset.id}>
+                    <SelectItem key={preset.id} value={String(preset.id)}>
                       {preset.name}
                     </SelectItem>
                   ))}

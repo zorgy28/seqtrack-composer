@@ -174,7 +174,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
       if (drumInfo) {
         const drumPresets = gmDrumKitPresets(drumInfo.gmProgram);
         for (const [ch, pid] of Object.entries(drumPresets)) {
-          const preset = findPresetById(pid);
+          const preset = findPresetById(Number(pid));
           if (preset) {
             await selectPreset(Number(ch) as SeqtrackChannel, preset);
           }
