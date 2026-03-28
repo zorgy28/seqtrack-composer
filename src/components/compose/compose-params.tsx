@@ -106,6 +106,7 @@ export const ComposeParams = memo(function ComposeParams({
             if (!isNaN(v)) onBpmChange(Math.min(BPM_MAX, Math.max(BPM_MIN, v)));
           }}
           disabled={disabled}
+          title="Tempo in beats per minute"
           className={cn(
             "h-7 w-14 rounded-lg border border-input bg-transparent px-1.5 text-center text-xs tabular-nums",
             "focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 outline-none",
@@ -163,6 +164,7 @@ export const ComposeParams = memo(function ComposeParams({
             value={swing}
             onChange={(e) => onSwingChange(parseInt(e.target.value, 10))}
             disabled={disabled}
+            title="Swing feel (0=straight, 100=max shuffle)"
             className={cn(
               "h-1.5 w-20 cursor-pointer appearance-none rounded-full bg-input accent-primary",
               disabled && "pointer-events-none opacity-50",

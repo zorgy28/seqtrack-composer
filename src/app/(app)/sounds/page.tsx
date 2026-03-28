@@ -240,6 +240,7 @@ export default function SoundsPage() {
                     className="h-6 text-[10px] px-2"
                     onClick={handleScan}
                     disabled={isScanning}
+                    title="Scan SEQTRAK for preset names via SysEx"
                   >
                     {isScanning
                       ? `Scanning ${scanPercent}%...`
@@ -252,6 +253,7 @@ export default function SoundsPage() {
                     size="sm"
                     className="h-6 text-[10px] px-2"
                     onClick={handleExport}
+                    title="Export scanned preset data as JSON"
                   >
                     Export JSON
                   </Button>

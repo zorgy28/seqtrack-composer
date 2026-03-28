@@ -78,6 +78,7 @@ export default function EditorPage() {
             size="sm"
             className="h-7 text-xs"
             onClick={() => setEnhanceOpen(true)}
+            title="Use AI to improve the current pattern"
           >
             <Sparkles className="w-3 h-3 mr-1" />
             Enhance
@@ -88,6 +89,7 @@ export default function EditorPage() {
             size="sm"
             className="h-7 text-xs"
             onClick={() => setImportOpen(true)}
+            title="Import from MIDI, sheet music, or notation"
           >
             <FileMusic className="w-3 h-3 mr-1" />
             Import
@@ -100,6 +102,7 @@ export default function EditorPage() {
             size="sm"
             className="h-7 text-xs"
             onClick={handleClearAll}
+            title="Remove all notes from all tracks"
           >
             Clear
           </Button>
@@ -111,6 +114,7 @@ export default function EditorPage() {
               const { downloadMidi } = await import("@/lib/midi/midi-export");
               downloadMidi(project);
             }}
+            title="Download as Standard MIDI File"
           >
             Export .mid
           </Button>

@@ -61,7 +61,7 @@ function ChannelTestRow({
           <span className="text-muted-foreground text-sm font-mono">--</span>
         )}
       </span>
-      <Button variant="outline" size="sm" onClick={onTest} className="h-7 text-xs">
+      <Button variant="outline" size="sm" onClick={onTest} className="h-7 text-xs" title="Send C3 note to this channel">
         Test
       </Button>
     </div>
@@ -179,6 +179,7 @@ export default function DevicePage() {
                   onClick={runTest}
                   disabled={!device || isTesting}
                   size="sm"
+                  title="Send test note to all 11 channels"
                 >
                   {isTesting ? "Testing..." : "Test All Channels"}
                 </Button>

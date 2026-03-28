@@ -65,8 +65,8 @@ export default function ProjectsPage() {
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">Current Project</CardTitle>
               <div className="flex gap-2">
-                <Button size="sm" onClick={handleSave}>Save</Button>
-                <Button size="sm" variant="outline" onClick={handleNew}>New</Button>
+                <Button size="sm" onClick={handleSave} title="Save current project">Save</Button>
+                <Button size="sm" variant="outline" onClick={handleNew} title="Create a new blank project">New</Button>
               </div>
             </div>
           </CardHeader>
@@ -87,10 +87,10 @@ export default function ProjectsPage() {
             <Separator />
 
             <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={handleExportMidi}>
+              <Button size="sm" variant="outline" onClick={handleExportMidi} title="Download as MIDI file">
                 Export .mid
               </Button>
-              <Button size="sm" variant="outline" onClick={handleExportJson}>
+              <Button size="sm" variant="outline" onClick={handleExportJson} title="Export full project backup as JSON">
                 Export .json
               </Button>
             </div>
@@ -129,6 +129,7 @@ export default function ProjectsPage() {
                         variant="outline"
                         className="h-7 text-xs"
                         onClick={() => handleLoad(p.id)}
+                        title="Load this project"
                       >
                         Load
                       </Button>
@@ -137,6 +138,7 @@ export default function ProjectsPage() {
                         variant="ghost"
                         className="h-7 text-xs text-destructive"
                         onClick={() => handleDelete(p.id)}
+                        title="Delete this project"
                       >
                         Delete
                       </Button>

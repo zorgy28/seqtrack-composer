@@ -220,6 +220,7 @@ export function ComposeResults({
           size="sm"
           onClick={onPreview}
           className="gap-1.5"
+          title="Preview pattern on SEQTRAK"
         >
           {isPlaying ? (
             <>
@@ -234,10 +235,10 @@ export function ComposeResults({
           )}
         </Button>
         <div className="flex-1" />
-        <Button variant="outline" size="sm" onClick={onApply}>
+        <Button variant="outline" size="sm" onClick={onApply} title="Add patterns to current project">
           Apply
         </Button>
-        <Button size="sm" onClick={onApplyAndEdit} className="gap-1.5">
+        <Button size="sm" onClick={onApplyAndEdit} className="gap-1.5" title="Add patterns and open in editor">
           Apply &amp; Edit
           <ArrowRight className="size-3" />
         </Button>

@@ -1097,6 +1097,7 @@ export default function SettingsPage() {
               variant="destructive"
               size="sm"
               onClick={handleClearAll}
+              title="Permanently delete all saved data"
             >
               Clear All Data
             </Button>

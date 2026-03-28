@@ -31,6 +31,7 @@ export function TransportBar() {
                 : undefined
         }
         disabled={!device || recordState === "stopping"}
+        title="Start/stop recording a live session"
       >
         <Circle
           className={cn(
@@ -49,6 +50,7 @@ export function TransportBar() {
         className="h-6 w-6"
         onClick={isPlaying ? stop : play}
         disabled={!device && !isPlaying}
+        title={isPlaying ? "Stop playback" : "Play pattern"}
       >
         {isPlaying ? <Square className="size-3" /> : <Play className="size-3" />}
       </Button>
@@ -60,6 +62,7 @@ export function TransportBar() {
           variant="ghost"
           className="h-6 w-6"
           onClick={() => seek(0)}
+          title="Return to beginning"
         >
           <SkipBack className="size-3" />
         </Button>

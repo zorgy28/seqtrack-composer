@@ -276,6 +276,7 @@ export default function ComposePage() {
             <Button
               onClick={() => handleGenerate()}
               disabled={isLoading || !prompt.trim()}
+              title="Generate patterns from your prompt (Cmd+Enter)"
             >
               {isLoading ? (
                 <>
