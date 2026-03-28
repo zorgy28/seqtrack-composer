@@ -1,5 +1,7 @@
 const { app, BrowserWindow, session, shell, Menu, ipcMain } = require("electron");
 const path = require("path");
+const fs = require("fs");
+const os = require("os");
 const { createServer } = require("http");
 const next = require("next");
 
@@ -210,10 +212,41 @@ app.whenReady().then(async () => {
   createWindow();
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+    } else if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     }
   });
+});
+
+// ---------------------------------------------------------------------------
+// IPC: Settings persistence to ~/Library/Preferences/
+// ---------------------------------------------------------------------------
+const PREFS_FILE = path.join(
+  os.homedir(),
+  "Library",
+  "Preferences",
+  "com.taktik.seqtrack-composer.json"
+);
+
+ipcMain.handle("read-prefs", async () => {
+  try {
+    const data = fs.readFileSync(PREFS_FILE, "utf-8");
+    return JSON.parse(data);
+  } catch {
+    return null;
+  }
+});
+
+ipcMain.handle("write-prefs", async (_event, data) => {
+  try {
+    fs.writeFileSync(PREFS_FILE, JSON.stringify(data, null, 2), "utf-8");
+    return true;
+  } catch (err) {
+    console.error("[prefs] Failed to write preferences:", err);
+    return false;
+  }
 });
 
 // Send MIDI panic (All Notes Off) before quitting to prevent stuck notes on SEQTRAK

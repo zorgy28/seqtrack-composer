@@ -1,7 +1,5 @@
 import type { LanguageModel } from "ai";
-import { getSettings } from "@/lib/settings";
-
-export type LLMProvider = "claude" | "gemini" | "openrouter" | "lmstudio";
+import type { ProviderConfig } from "@/lib/settings";
 
 // Custom fetch with 5-minute timeout for local LLMs (they can be slow)
 const lmStudioFetch: typeof fetch = (url, init) => {
@@ -11,96 +9,68 @@ const lmStudioFetch: typeof fetch = (url, init) => {
   });
 };
 
-async function createLMStudioProvider() {
-  const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
-  return createOpenAICompatible({
-    name: "lmstudio",
-    baseURL: process.env.LM_STUDIO_URL || "http://host.docker.internal:1235/v1",
-    headers: {
-      Authorization: `Bearer ${process.env.LM_STUDIO_API_KEY || ""}`,
-    },
-    fetch: lmStudioFetch,
+const ollamaFetch: typeof fetch = (url, init) => {
+  return fetch(url, {
+    ...init,
+    signal: init?.signal ?? AbortSignal.timeout(300_000), // 5 minutes
   });
-}
+};
 
 /**
- * Return the configured AI SDK model based on settings store.
+ * Create an AI SDK LanguageModel from a ProviderConfig sent by the client.
+ * All API keys and URLs come from the config — no process.env reads.
  */
-export async function getModel(): Promise<LanguageModel> {
-  const settings = getSettings();
-  const provider = settings.llmProvider;
+export async function getModelFromConfig(config: ProviderConfig): Promise<LanguageModel> {
+  const provider = config.provider || "claude";
 
   if (provider === "claude") {
-    const { anthropic } = await import("@ai-sdk/anthropic");
-    return anthropic(settings.claudeModel || "claude-sonnet-4-6");
+    const { createAnthropic } = await import("@ai-sdk/anthropic");
+    const anthropic = createAnthropic({ apiKey: config.apiKey || undefined });
+    return anthropic(config.modelId || "claude-sonnet-4-6");
   }
 
   if (provider === "gemini") {
-    const { google } = await import("@ai-sdk/google");
-    // Note: @ai-sdk/google reads GOOGLE_GENERATIVE_AI_API_KEY from env
-    // or we can pass apiKey in settings
-    return google(settings.geminiModel || "gemini-2.5-flash");
+    const { createGoogleGenerativeAI } = await import("@ai-sdk/google");
+    const google = createGoogleGenerativeAI({ apiKey: config.apiKey || undefined });
+    return google(config.modelId || "gemini-2.5-flash");
   }
 
   if (provider === "openrouter") {
     const { createOpenRouter } = await import("@openrouter/ai-sdk-provider");
-    const openrouter = createOpenRouter({
-      apiKey: settings.openrouterApiKey || process.env.OPENROUTER_API_KEY || "",
-    });
-    return openrouter(settings.openrouterModel || "anthropic/claude-sonnet-4.5");
+    const openrouter = createOpenRouter({ apiKey: config.apiKey || "" });
+    return openrouter(config.modelId || "anthropic/claude-sonnet-4.5");
   }
 
   if (provider === "lm-studio") {
-    const lmstudio = await createLMStudioProvider();
-    return lmstudio(settings.lmStudioModel || "minimax/minimax-m2.5");
-  }
-
-  const { anthropic } = await import("@ai-sdk/anthropic");
-  return anthropic("claude-sonnet-4-6");
-}
-
-/**
- * Get a model with runtime override (from request body).
- */
-export async function getModelWithOverride(
-  provider?: string,
-  modelId?: string,
-): Promise<LanguageModel> {
-  const settings = getSettings();
-  const effectiveProvider = provider || settings.llmProvider;
-
-  if (effectiveProvider === "claude" && modelId) {
-    const { anthropic } = await import("@ai-sdk/anthropic");
-    return anthropic(modelId);
-  }
-
-  if (effectiveProvider === "gemini" && modelId) {
-    const { google } = await import("@ai-sdk/google");
-    return google(modelId);
-  }
-
-  if (effectiveProvider === "openrouter" && modelId) {
-    const { createOpenRouter } = await import("@openrouter/ai-sdk-provider");
-    const openrouter = createOpenRouter({
-      apiKey: settings.openrouterApiKey || process.env.OPENROUTER_API_KEY || "",
+    const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
+    const lmstudio = createOpenAICompatible({
+      name: "lmstudio",
+      baseURL: config.baseUrl || "http://localhost:1234/v1",
+      fetch: lmStudioFetch,
     });
-    return openrouter(modelId);
+    return lmstudio(config.modelId || "");
   }
 
-  if (effectiveProvider === "lm-studio" && modelId) {
-    const lmstudio = await createLMStudioProvider();
-    return lmstudio(modelId);
+  if (provider === "ollama") {
+    const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
+    const ollama = createOpenAICompatible({
+      name: "ollama",
+      baseURL: (config.baseUrl || "http://localhost:11434") + "/v1",
+      fetch: ollamaFetch,
+    });
+    return ollama(config.modelId || "");
   }
 
-  return getModel();
+  // Fallback: Claude with no explicit key (will use ANTHROPIC_API_KEY env if set)
+  const { createAnthropic } = await import("@ai-sdk/anthropic");
+  const anthropic = createAnthropic({ apiKey: config.apiKey || undefined });
+  return anthropic(config.modelId || "claude-sonnet-4-6");
 }
 
 /** Whether the given provider natively supports Zod structured output */
 export function supportsStructuredOutput(provider?: string): boolean {
-  const p = provider || getSettings().llmProvider;
-  // Claude, Gemini, and most OpenRouter models support structured output
-  return p === "claude" || p === "gemini";
-  // OpenRouter and LM Studio use the JSON fallback
+  if (!provider) return true;
+  return provider === "claude" || provider === "gemini";
 }
 
 /**
@@ -109,9 +79,9 @@ export function supportsStructuredOutput(provider?: string): boolean {
  */
 export function getLMStudioInferenceParams(): Record<string, unknown> {
   return {
-    temperature: 0.3,        // Lower = more consistent JSON structure
-    max_tokens: 8192,        // Enough for full multi-track patterns
+    temperature: 0.3,
+    max_tokens: 8192,
     top_p: 0.9,
-    repetition_penalty: 1.05, // Prevent repetitive patterns
+    repetition_penalty: 1.05,
   };
 }

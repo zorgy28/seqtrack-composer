@@ -7,4 +7,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onBeforeQuit: (callback) => {
     ipcRenderer.on("app-before-quit", callback);
   },
+  readPrefs: () => ipcRenderer.invoke("read-prefs"),
+  writePrefs: (data) => ipcRenderer.invoke("write-prefs", data),
 });

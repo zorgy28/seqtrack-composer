@@ -3,6 +3,7 @@
 import { useCallback } from "react";
 import type { Project, Pattern } from "@/lib/midi/types";
 import { useAsyncOperation, type AsyncStage } from "./use-async-operation";
+import { getSettings, buildProviderConfig } from "@/lib/settings";
 
 export type EnhanceAction = "enhance" | "sounds" | "rearrange" | "all";
 export type EnhanceStage = AsyncStage;
@@ -25,7 +26,7 @@ export interface UseEnhanceReturn {
   stage: EnhanceStage;
   result: EnhanceResult | null;
   error: string | null;
-  run: (project: Project, instruction: string, action: EnhanceAction, modelProvider?: string, modelId?: string) => Promise<void>;
+  run: (project: Project, instruction: string, action: EnhanceAction) => Promise<void>;
   reset: () => void;
 }
 
@@ -36,14 +37,13 @@ export function useEnhance(): UseEnhanceReturn {
     project: Project,
     instruction: string,
     action: EnhanceAction,
-    modelProvider?: string,
-    modelId?: string,
   ) => {
     await runAsync(async () => {
+      const settings = getSettings();
       const res = await fetch("/api/enhance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project, instruction, action, modelProvider, modelId }),
+        body: JSON.stringify({ project, instruction, action, providerConfig: buildProviderConfig(settings) }),
       });
 
       if (!res.ok) {

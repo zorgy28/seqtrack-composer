@@ -19,6 +19,7 @@ import {
   exportSettings,
   importSettings,
   getStorageUsage,
+  restoreSettingsIfNeeded,
   type AppSettings,
   type PlaybackMode,
   type LlmProvider,
@@ -137,6 +138,91 @@ function LMStudioModelSelector({
           <input
             type="text"
             value={currentModel}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="model-name"
+            className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Ollama Model Selector (fetches available models)
+// ---------------------------------------------------------------------------
+
+function OllamaModelSelector({
+  url,
+  value,
+  onChange,
+}: {
+  url: string;
+  value: string;
+  onChange: (model: string) => void;
+}) {
+  const [models, setModels] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [reachable, setReachable] = useState<boolean | null>(null);
+
+  const fetchModels = useCallback(async () => {
+    if (!url) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/models?url=${encodeURIComponent(url)}&type=ollama`);
+      if (res.ok) {
+        const data = await res.json();
+        setModels((data.models ?? []).map((m: { id: string }) => m.id));
+        setReachable(data.reachable ?? false);
+      } else {
+        setReachable(false);
+      }
+    } catch {
+      setReachable(false);
+    } finally {
+      setLoading(false);
+    }
+  }, [url]);
+
+  useEffect(() => {
+    fetchModels();
+  }, [fetchModels]);
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2">
+        <FieldLabel hint="Select from models available in Ollama. Pull models with `ollama pull <model>`.">
+          Ollama Model
+        </FieldLabel>
+        {reachable !== null && (
+          <span className={cn("size-2 rounded-full", reachable ? "bg-green-500" : "bg-red-500")} title={reachable ? "Connected" : "Unreachable"} />
+        )}
+      </div>
+      {loading ? (
+        <p className="text-xs text-muted-foreground">Loading models...</p>
+      ) : models.length > 0 ? (
+        <div className="flex flex-col gap-1">
+          {models.map((m) => (
+            <button
+              key={m}
+              onClick={() => onChange(m)}
+              className={cn(
+                "w-full text-left rounded-lg border px-3 py-1.5 text-xs transition-colors",
+                value === m
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-input text-muted-foreground hover:border-foreground/30"
+              )}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <>
+          <p className="text-[10px] text-muted-foreground/60">No models found. Make sure Ollama is running and has models pulled.</p>
+          <input
+            type="text"
+            value={value}
             onChange={(e) => onChange(e.target.value)}
             placeholder="model-name"
             className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
@@ -325,6 +411,13 @@ export default function SettingsPage() {
 
   useEffect(() => () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); }, []);
 
+  // Restore settings from Electron prefs on first launch (empty localStorage)
+  useEffect(() => {
+    restoreSettingsIfNeeded().then((restored) => {
+      setSettings(restored);
+    });
+  }, []);
+
   // ---- Storage helpers ----
   const storage = getStorageUsage();
   const usagePct = Math.min((storage.used / storage.limit) * 100, 100);
@@ -461,15 +554,17 @@ export default function SettingsPage() {
           <CardDescription>LLM provider and generation parameters</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <p className="text-xs text-zinc-500">API keys are stored locally on your device and never sent to our servers.</p>
+
           {/* Provider toggle */}
           <div className="space-y-1.5">
             <FieldLabel hint="Choose your AI provider. Claude uses the Anthropic API key from .env.local. Others need their own key.">Provider</FieldLabel>
-            <div className="flex gap-2">
-              {(["claude", "gemini", "openrouter", "lm-studio"] as LlmProvider[]).map((p) => (
+            <div className="flex flex-wrap gap-2">
+              {(["claude", "gemini", "openrouter", "lm-studio", "ollama"] as LlmProvider[]).map((p) => (
                 <ToggleButton
                   key={p}
                   active={settings.llmProvider === p}
-                  label={{ claude: "Claude", gemini: "Gemini", openrouter: "OpenRouter", "lm-studio": "LM Studio" }[p]}
+                  label={{ claude: "Claude", gemini: "Gemini", openrouter: "OpenRouter", "lm-studio": "LM Studio", ollama: "Ollama" }[p]}
                   onClick={() => handleChange({ llmProvider: p })}
                 />
               ))}
@@ -478,6 +573,17 @@ export default function SettingsPage() {
 
           {/* ---- Claude ---- */}
           {settings.llmProvider === "claude" && (
+            <>
+            <div className="space-y-1.5">
+              <FieldLabel hint="Get your key at console.anthropic.com">Claude API Key</FieldLabel>
+              <input
+                type="password"
+                value={settings.claudeApiKey}
+                onChange={(e) => handleChange({ claudeApiKey: e.target.value })}
+                placeholder="sk-ant-... (leave blank to use .env.local key)"
+                className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
             <div className="space-y-1.5">
               <FieldLabel hint="Sonnet 4.6 recommended — best balance of speed and quality for music generation.">Claude Model</FieldLabel>
               <div className="flex flex-wrap gap-2">
@@ -503,6 +609,7 @@ export default function SettingsPage() {
                 ))}
               </div>
             </div>
+            </>
           )}
 
           {/* ---- Gemini ---- */}
@@ -591,6 +698,34 @@ export default function SettingsPage() {
                 onChange={(model) => handleChange({ lmStudioModel: model })}
               />
             </>
+          )}
+
+          {/* ---- Ollama ---- */}
+          {settings.llmProvider === "ollama" && (
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <FieldLabel>Ollama Server URL</FieldLabel>
+                <input
+                  type="text"
+                  value={settings.ollamaUrl}
+                  onChange={(e) => handleChange({ ollamaUrl: e.target.value })}
+                  placeholder="http://localhost:11434"
+                  className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <p className="text-[10px] text-muted-foreground/60">
+                  Install Ollama at{" "}
+                  <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                    ollama.com
+                  </a>
+                </p>
+              </div>
+
+              <OllamaModelSelector
+                url={settings.ollamaUrl}
+                value={settings.ollamaModel}
+                onChange={(model) => handleChange({ ollamaModel: model })}
+              />
+            </div>
           )}
 
           {/* ---- Shared: Temperature ---- */}
@@ -818,6 +953,43 @@ export default function SettingsPage() {
               placeholder="http://localhost:8200"
               className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             />
+          </div>
+
+          {/* Docling (PDF Import) */}
+          <div className="space-y-2">
+            <h4 className="text-sm font-medium text-foreground/80">Docling (PDF Import)</h4>
+            <div className="space-y-1.5">
+              <FieldLabel>Docling Server URL</FieldLabel>
+              <input
+                type="text"
+                value={settings.doclingUrl}
+                onChange={(e) => handleChange({ doclingUrl: e.target.value })}
+                placeholder="https://your-docling-server/v1/convert/file"
+                className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <FieldLabel>Docling API Key</FieldLabel>
+              <input
+                type="password"
+                value={settings.doclingApiKey}
+                onChange={(e) => handleChange({ doclingApiKey: e.target.value })}
+                placeholder="Optional"
+                className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+            {!settings.doclingUrl && (
+              <div className="rounded-lg border border-input bg-muted/30 p-3 text-[10px] text-muted-foreground space-y-1">
+                <p>Docling converts PDF sheet music to text for better import accuracy.</p>
+                <p>Install locally: <code className="text-foreground/80">pip install docling-serve &amp;&amp; docling-serve run</code></p>
+                <p>
+                  More info:{" "}
+                  <a href="https://github.com/docling-project/docling" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                    github.com/docling-project/docling
+                  </a>
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Stem model */}

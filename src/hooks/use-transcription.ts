@@ -17,6 +17,7 @@ import {
   getEntryById,
   type TranscriptionHistoryEntry,
 } from "@/lib/transcription/history";
+import { getSettings, buildProviderConfig } from "@/lib/settings";
 
 export interface AudioAnalysisInfo {
   bpm: number;
@@ -36,10 +37,6 @@ export interface UseTranscriptionReturn {
   isUrlSource: boolean;
   bars: number;
   setBars: (bars: number) => void;
-  modelProvider: string;
-  modelId: string;
-  setModelProvider: (provider: string) => void;
-  setModelId: (model: string) => void;
   startFromFile: (file: File) => void;
   startFromUrl: (url: string) => void;
   toggleStem: (stemName: string) => void;
@@ -115,8 +112,6 @@ export function useTranscription(): UseTranscriptionReturn {
   const [error, setError] = useState<string | null>(null);
   const [isUrlSource, setIsUrlSource] = useState(false);
   const [bars, setBars] = useState(4);
-  const [modelProvider, setModelProvider] = useState("claude");
-  const [modelId, setModelId] = useState("claude-sonnet-4");
   const [history, setHistory] = useState<TranscriptionHistoryEntry[]>(() =>
     typeof window !== "undefined" ? getHistory() : []
   );
@@ -184,6 +179,7 @@ export function useTranscription(): UseTranscriptionReturn {
       setStage("generating");
       setProgress(90);
 
+      const settings = getSettings();
       const res = await fetch("/api/transcribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -193,8 +189,7 @@ export function useTranscription(): UseTranscriptionReturn {
           analysis: audioAnalysis,
           enabledStems: activeStems,
           bars,
-          modelProvider,
-          modelId,
+          providerConfig: buildProviderConfig(settings),
         }),
       });
 
@@ -205,7 +200,7 @@ export function useTranscription(): UseTranscriptionReturn {
 
       return res.json() as Promise<TranscriptionResult>;
     },
-    [bars, modelProvider, modelId],
+    [bars],
   );
 
   // ---- Main pipeline ----
@@ -407,10 +402,6 @@ export function useTranscription(): UseTranscriptionReturn {
     isUrlSource,
     bars,
     setBars,
-    modelProvider,
-    modelId,
-    setModelProvider,
-    setModelId,
     startFromFile,
     startFromUrl,
     toggleStem,

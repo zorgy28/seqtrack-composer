@@ -2,6 +2,8 @@
   "name": "seqtrack-composer",
   "version": "0.1.0",
   "private": true,
+  "description": "AI-powered MIDI composition app for Yamaha SEQTRAK",
+  "author": "TakTik <hello@taktik.net>",
   "main": "electron/main.js",
   "scripts": {
     "dev": "next dev",

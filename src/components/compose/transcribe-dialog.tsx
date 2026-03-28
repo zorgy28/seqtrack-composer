@@ -17,6 +17,8 @@ import { OptionPicker } from "./option-picker";
 import { useTranscription } from "@/hooks/use-transcription";
 import { useProject } from "@/providers/project-provider";
 import { useMidiConnection } from "@/hooks/use-midi-connection";
+import { getSettings, updateSettings } from "@/lib/settings";
+import type { ModelSelection, LLMProvider } from "./model-selector";
 
 type WizardStep = "upload" | "processing" | "choose";
 
@@ -51,10 +53,6 @@ export function TranscribeDialog({ open, onOpenChange }: TranscribeDialogProps) 
     reset,
     bars,
     setBars,
-    modelProvider,
-    modelId,
-    setModelProvider,
-    setModelId,
     history,
     reprocessFromHistory,
   } = useTranscription();
@@ -64,6 +62,33 @@ export function TranscribeDialog({ open, onOpenChange }: TranscribeDialogProps) 
   const cancelPreviewRef = useRef<(() => void)[]>([]);
   const [currentStep, setCurrentStep] = useState<number | null>(null);
   const [previewingIndex, setPreviewingIndex] = useState<number | null>(null);
+
+  // Model selector state derived from settings
+  const [modelSelection, setModelSelection] = useState<ModelSelection>(() => {
+    const s = getSettings();
+    const provider = s.llmProvider as LLMProvider;
+    const model = (() => {
+      switch (s.llmProvider) {
+        case "gemini":     return s.geminiModel || "gemini-2.5-flash";
+        case "openrouter": return s.openrouterModel || "anthropic/claude-sonnet-4.5";
+        case "lm-studio":  return s.lmStudioModel || "";
+        case "ollama":     return s.ollamaModel || "";
+        default:           return s.claudeModel || "claude-sonnet-4-6";
+      }
+    })();
+    return { provider, model };
+  });
+  const handleModelChange = useCallback((sel: ModelSelection) => {
+    setModelSelection(sel);
+    const partial: Record<string, string> = { llmProvider: sel.provider };
+    switch (sel.provider) {
+      case "claude":      partial.claudeModel = sel.model; break;
+      case "gemini":      partial.geminiModel = sel.model; break;
+      case "openrouter":  partial.openrouterModel = sel.model; break;
+      case "lm-studio":   partial.lmStudioModel = sel.model; break;
+    }
+    updateSettings(partial);
+  }, []);
   const wizardStep = getWizardStep(stage, options.length);
   const isProcessing = wizardStep === "processing";
 
@@ -187,8 +212,8 @@ export function TranscribeDialog({ open, onOpenChange }: TranscribeDialogProps) 
                 onUrlSubmit={startFromUrl}
                 bars={bars}
                 onBarsChange={setBars}
-                modelSelection={{ provider: modelProvider as import("./model-selector").LLMProvider, model: modelId }}
-                onModelChange={(sel) => { setModelProvider(sel.provider); setModelId(sel.model); }}
+                modelSelection={modelSelection}
+                onModelChange={handleModelChange}
               />
               {history.length > 0 && (
                 <div className="mt-4 flex flex-col gap-2">

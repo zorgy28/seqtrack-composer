@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef } from "react";
 import type { CompositionOutput } from "@/lib/ai/schema";
 import { useAsyncOperation, type AsyncStage } from "./use-async-operation";
+import { getSettings, buildProviderConfig } from "@/lib/settings";
 
 export type ComposeStage = AsyncStage;
 
@@ -37,8 +38,6 @@ export interface ComposeParams {
   scaleName: string;
   bars: number;
   swing: number;
-  modelProvider?: string;
-  modelId?: string;
 }
 
 export interface UseComposeReturn {
@@ -70,6 +69,7 @@ export function useCompose(): UseComposeReturn {
     lastParamsRef.current = params;
 
     await run(async () => {
+      const settings = getSettings();
       const res = await fetch("/api/compose", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -80,8 +80,7 @@ export function useCompose(): UseComposeReturn {
           scaleName: params.scaleName,
           bars: params.bars,
           swing: params.swing,
-          modelProvider: params.modelProvider,
-          modelId: params.modelId,
+          providerConfig: buildProviderConfig(settings),
         }),
       });
 
@@ -102,6 +101,7 @@ export function useCompose(): UseComposeReturn {
     const params = lastParamsRef.current;
 
     await run(async () => {
+      const settings = getSettings();
       const res = await fetch("/api/compose", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -112,8 +112,7 @@ export function useCompose(): UseComposeReturn {
           scaleName: params.scaleName,
           bars: params.bars,
           swing: params.swing,
-          modelProvider: params.modelProvider,
-          modelId: params.modelId,
+          providerConfig: buildProviderConfig(settings),
           previousResult: result,
           refinementInstruction: instruction,
         }),

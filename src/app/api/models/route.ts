@@ -1,18 +1,37 @@
 export const maxDuration = 30;
 
 /**
- * Proxy endpoint to list available LM Studio models.
+ * Proxy endpoint to list available local models (LM Studio or Ollama).
+ * Query params:
+ *   - url: base URL of the server (default: http://localhost:1234/v1)
+ *   - type: "lmstudio" | "ollama" (default: "lmstudio")
+ *
  * Returns { models: [{ id: string }], reachable: boolean }
- * - reachable: false → server not running / network error
- * - reachable: true, models: [] → server running but no model loaded
  */
-export async function GET() {
-  const lmUrl = process.env.LM_STUDIO_URL || "http://169.254.48.100:1235/v1";
-  const lmKey = process.env.LM_STUDIO_API_KEY || "";
+export async function GET(request: Request) {
+  const reqUrl = new URL(request.url);
+  const baseUrl = reqUrl.searchParams.get("url") || "http://localhost:1234/v1";
+  const type = reqUrl.searchParams.get("type") || "lmstudio";
 
   try {
-    const res = await fetch(`${lmUrl}/models`, {
-      headers: lmKey ? { Authorization: `Bearer ${lmKey}` } : {},
+    if (type === "ollama") {
+      // Ollama uses /api/tags endpoint
+      const ollamaBase = baseUrl.replace(/\/v1\/?$/, "");
+      const res = await fetch(`${ollamaBase}/api/tags`, {
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (!res.ok) {
+        return Response.json({ models: [], reachable: false });
+      }
+
+      const data = await res.json();
+      const models = (data.models ?? []).map((m: { name: string }) => ({ id: m.name }));
+      return Response.json({ models, reachable: true });
+    }
+
+    // LM Studio uses OpenAI-compatible /models endpoint
+    const res = await fetch(`${baseUrl}/models`, {
       signal: AbortSignal.timeout(5000),
     });
 

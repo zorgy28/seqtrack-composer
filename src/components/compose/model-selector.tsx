@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { getSettings } from "@/lib/settings";
 import { RefreshCw } from "lucide-react";
 
-export type LLMProvider = "claude" | "gemini" | "openrouter" | "lm-studio";
+export type LLMProvider = "claude" | "gemini" | "openrouter" | "lm-studio" | "ollama";
 
 export interface ModelSelection {
   provider: LLMProvider;
@@ -32,6 +32,7 @@ const PROVIDER_LABELS: Record<LLMProvider, string> = {
   gemini:       "Gemini",
   openrouter:   "OpenRouter",
   "lm-studio":  "LM Studio",
+  ollama:       "Ollama",
 };
 
 const OR_POPULAR = [
@@ -204,7 +205,12 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/models")
+    const isOllama = value.provider === "ollama";
+    const url = isOllama
+      ? (settings.ollamaUrl || "http://localhost:11434")
+      : (settings.lmStudioUrl || "http://localhost:1234/v1");
+    const type = isOllama ? "ollama" : "lmstudio";
+    fetch(`/api/models?url=${encodeURIComponent(url)}&type=${type}`)
       .then((r) => r.ok ? r.json() : { models: [], reachable: false })
       .then((d) => {
         if (!cancelled) {
@@ -214,7 +220,8 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
       })
       .catch(() => { if (!cancelled) setLmReachable(false); });
     return () => { cancelled = true; };
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.lmStudioUrl, settings.ollamaUrl, value.provider]);
 
   function selectProvider(p: LLMProvider) {
     if (p === value.provider) return;

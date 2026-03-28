@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { getSettings } from "@/lib/settings";
+import { getSettings, buildProviderConfig, updateSettings } from "@/lib/settings";
 import { useProject } from "@/providers/project-provider";
 import { useMidiConnection } from "@/hooks/use-midi-connection";
 import { useSoundControl } from "@/hooks/use-sound-control";
@@ -72,6 +72,7 @@ export default function ComposePage() {
     if (!prompt.trim() || isEnhancing) return;
     setIsEnhancing(true);
     try {
+      const settings = getSettings();
       const res = await fetch("/api/enhance-prompt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -81,8 +82,7 @@ export default function ComposePage() {
           scaleRoot: project.scaleRoot,
           scaleName: project.scaleName,
           bars,
-          modelProvider,
-          modelId,
+          providerConfig: buildProviderConfig(settings),
         }),
       });
       if (res.ok) {
@@ -94,7 +94,7 @@ export default function ComposePage() {
     } finally {
       setIsEnhancing(false);
     }
-  }, [prompt, project.bpm, project.scaleRoot, project.scaleName, bars, modelProvider, modelId, isEnhancing]);
+  }, [prompt, project.bpm, project.scaleRoot, project.scaleName, bars, isEnhancing]);
 
   // ── Generate ────────────────────────────────────────────────────
 
@@ -111,11 +111,9 @@ export default function ComposePage() {
         scaleName: project.scaleName,
         bars,
         swing,
-        modelProvider,
-        modelId,
       });
     },
-    [prompt, project.bpm, project.scaleRoot, project.scaleName, bars, swing, modelProvider, modelId, stopPreview, generate],
+    [prompt, project.bpm, project.scaleRoot, project.scaleName, bars, swing, stopPreview, generate],
   );
 
   // ── Preview (toggle play/stop) ─────────────────────────────────
@@ -215,6 +213,16 @@ export default function ComposePage() {
   const handleModelChange = useCallback((p: string, m: string) => {
     setModelProvider(p);
     setModelId(m);
+    // Sync selection to settings so hooks pick it up via buildProviderConfig()
+    const partial: Record<string, string> = { llmProvider: p };
+    switch (p) {
+      case "claude":      partial.claudeModel = m; break;
+      case "gemini":      partial.geminiModel = m; break;
+      case "openrouter":  partial.openrouterModel = m; break;
+      case "lm-studio":   partial.lmStudioModel = m; break;
+      case "ollama":      partial.ollamaModel = m; break;
+    }
+    updateSettings(partial);
   }, []);
 
   const handlePresetSelect = useCallback((p: string) => {

@@ -2,6 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <!-- App Sandbox (required for Mac App Store) -->
+  <key>com.apple.security.app-sandbox</key>
+  <true/>
   <!-- V8 JIT compiler requires this -->
   <key>com.apple.security.cs.allow-jit</key>
   <true/>
@@ -19,6 +22,9 @@
   <true/>
   <!-- Network access for AI API calls (Claude, OpenRouter, etc.) -->
   <key>com.apple.security.network.client</key>
+  <true/>
+  <!-- Read/write to ~/Library/Preferences/ for settings persistence -->
+  <key>com.apple.security.files.user-selected.read-write</key>
   <true/>
 </dict>
 </plist>
