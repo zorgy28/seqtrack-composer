@@ -238,10 +238,12 @@ function OllamaModelSelector({
 
 function ZaiModelSelector({
   apiKey,
+  url,
   value,
   onChange,
 }: {
   apiKey: string;
+  url: string;
   value: string;
   onChange: (model: string) => void;
 }) {
@@ -253,7 +255,7 @@ function ZaiModelSelector({
     if (!apiKey) { setReachable(null); setModels([]); return; }
     setLoading(true);
     try {
-      const res = await fetch(`/api/models?url=${encodeURIComponent("https://api.z.ai/api/paas/v4")}&type=zai&apiKey=${encodeURIComponent(apiKey)}`);
+      const res = await fetch(`/api/models?url=${encodeURIComponent(url)}&type=zai&apiKey=${encodeURIComponent(apiKey)}`);
       if (res.ok) {
         const data = await res.json();
         setModels((data.models ?? []).map((m: { id: string }) => m.id));
@@ -266,7 +268,7 @@ function ZaiModelSelector({
     } finally {
       setLoading(false);
     }
-  }, [apiKey]);
+  }, [apiKey, url]);
 
   useEffect(() => {
     fetchModels();
@@ -831,9 +833,33 @@ export default function SettingsPage() {
               </div>
 
               <div className="space-y-1.5">
+                <FieldLabel hint="Use the Coding endpoint for subscription plans, or the general endpoint for pay-per-use.">Endpoint</FieldLabel>
+                <div className="flex gap-1">
+                  {[
+                    { url: "https://api.z.ai/api/coding/paas/v4", label: "Coding Plan" },
+                    { url: "https://api.z.ai/api/paas/v4", label: "General API" },
+                  ].map((ep) => (
+                    <button
+                      key={ep.url}
+                      onClick={() => handleChange({ zaiUrl: ep.url })}
+                      className={cn(
+                        "rounded-lg border px-3 py-1.5 text-xs transition-colors",
+                        (settings.zaiUrl || "https://api.z.ai/api/coding/paas/v4") === ep.url
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-input text-muted-foreground hover:border-foreground/30"
+                      )}
+                    >
+                      {ep.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
                 <FieldLabel>Model</FieldLabel>
                 <ZaiModelSelector
                   apiKey={settings.zaiApiKey}
+                  url={settings.zaiUrl || "https://api.z.ai/api/coding/paas/v4"}
                   value={settings.zaiModel}
                   onChange={(model) => handleChange({ zaiModel: model })}
                 />

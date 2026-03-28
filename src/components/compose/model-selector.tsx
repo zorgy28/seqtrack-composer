@@ -209,12 +209,13 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
     const isOllama = value.provider === "ollama";
     const isZai = value.provider === "zai";
     const url = isZai
-      ? "https://api.z.ai/api/paas/v4"
+      ? (settings.zaiUrl || "https://api.z.ai/api/coding/paas/v4")
       : isOllama
         ? (settings.ollamaUrl || "http://localhost:11434")
         : (settings.lmStudioUrl || "http://localhost:1234/v1");
     const type = isZai ? "zai" : isOllama ? "ollama" : "lmstudio";
-    const apiKeyParam = isZai && settings.zaiApiKey ? `&apiKey=${encodeURIComponent(settings.zaiApiKey)}` : "";
+    const zaiApiKey = settings.zaiApiKey || "";
+    const apiKeyParam = isZai && zaiApiKey ? `&apiKey=${encodeURIComponent(zaiApiKey)}` : "";
     fetch(`/api/models?url=${encodeURIComponent(url)}&type=${type}${apiKeyParam}`)
       .then((r) => r.ok ? r.json() : { models: [], reachable: false })
       .then((d) => {
@@ -226,7 +227,7 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
       .catch(() => { if (!cancelled) setLmReachable(false); });
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.lmStudioUrl, settings.ollamaUrl, settings.zaiApiKey, value.provider]);
+  }, [settings.lmStudioUrl, settings.ollamaUrl, settings.zaiApiKey, settings.zaiUrl, value.provider]);
 
   function selectProvider(p: LLMProvider) {
     if (p === value.provider) return;

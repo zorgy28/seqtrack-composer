@@ -28,6 +28,7 @@ export interface AppSettings {
   ollamaUrl: string;
   ollamaModel: string;
   zaiApiKey: string;
+  zaiUrl: string;
   zaiModel: string;
   doclingUrl: string;
   doclingApiKey: string;
@@ -72,7 +73,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ollamaUrl: "http://localhost:11434",
   ollamaModel: "",
   zaiApiKey: "",
-  zaiModel: "glm-5",
+  zaiUrl: "https://api.z.ai/api/coding/paas/v4",
+  zaiModel: "glm-4.7",
   doclingUrl: "",
   doclingApiKey: "",
   temperature: 0.3,
@@ -151,7 +153,7 @@ export function buildProviderConfig(settings: AppSettings): ProviderConfig {
     case "ollama":
       return { provider: "ollama", modelId: settings.ollamaModel, baseUrl: settings.ollamaUrl };
     case "zai":
-      return { provider: "zai", modelId: settings.zaiModel, apiKey: settings.zaiApiKey, baseUrl: "https://api.z.ai/api/paas/v4" };
+      return { provider: "zai", modelId: settings.zaiModel, apiKey: settings.zaiApiKey, baseUrl: settings.zaiUrl || "https://api.z.ai/api/coding/paas/v4" };
     default:
       return { provider: "claude", modelId: settings.claudeModel, apiKey: settings.claudeApiKey };
   }

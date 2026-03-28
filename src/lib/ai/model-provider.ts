@@ -65,10 +65,10 @@ export async function getModelFromConfig(config: ProviderConfig): Promise<Langua
     const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
     const zai = createOpenAICompatible({
       name: "zai",
-      baseURL: config.baseUrl || "https://api.z.ai/api/paas/v4",
+      baseURL: config.baseUrl || "https://api.z.ai/api/coding/paas/v4",
       headers: { Authorization: `Bearer ${config.apiKey || ""}` },
     });
-    return zai(config.modelId || "glm-5");
+    return zai(config.modelId || "glm-4.7");
   }
 
   // Fallback: Claude with no explicit key (will use ANTHROPIC_API_KEY env if set)
