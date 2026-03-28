@@ -21,6 +21,7 @@ export interface ProjectActions {
   setSelectedChannel: (ch: SeqtrackChannel) => void;
   updatePattern: (channel: SeqtrackChannel, patternIndex: number, pattern: Pattern) => void;
   updateBpm: (bpm: number) => void;
+  setActivePatternAll: (index: number) => void;
   loadTranscription: (option: TranscriptionOption) => void;
   /** Called once IDB is ready — internal, not part of public API */
   _hydrateFromIdb: (project: Project) => void;
@@ -111,6 +112,27 @@ export function createProjectStore(initialProject?: Project) {
         const updated: Project = {
           ...state.project,
           bpm,
+          updatedAt: new Date().toISOString(),
+        };
+        autoSave(updated);
+        return { project: updated };
+      });
+    },
+
+    setActivePatternAll: (index: number) => {
+      set((state) => {
+        const prev = state.project;
+        const updatedTracks = { ...prev.tracks };
+        for (const ch of Object.keys(updatedTracks)) {
+          const channel = Number(ch) as SeqtrackChannel;
+          const track = updatedTracks[channel];
+          if (track && index < track.patterns.length) {
+            updatedTracks[channel] = { ...track, activePattern: index };
+          }
+        }
+        const updated: Project = {
+          ...prev,
+          tracks: updatedTracks,
           updatedAt: new Date().toISOString(),
         };
         autoSave(updated);
@@ -219,4 +241,10 @@ export function useSelectedChannel() {
 export function useUpdatePattern() {
   const store = useProjectStore();
   return useStore(store, (s) => s.updatePattern);
+}
+
+/** Just the setActivePatternAll action — stable reference, never causes re-renders on its own. */
+export function useSetActivePatternAll() {
+  const store = useProjectStore();
+  return useStore(store, (s) => s.setActivePatternAll);
 }

@@ -165,12 +165,23 @@ export async function parseMidiFile(arrayBuffer: ArrayBuffer): Promise<ImportRes
     }
   }
 
+  // ---- 4. Compute total bar count from note end times ------------------
+
+  const bpm = midi.header.tempos[0]?.bpm ?? 120;
+  const secondsPerBar = (60 / bpm) * 4; // 4 beats per bar in 4/4 time
+  const maxEndTime = notes.reduce(
+    (max, n) => Math.max(max, n.time + n.duration),
+    0,
+  );
+  const totalBars = Math.max(1, Math.ceil(maxEndTime / secondsPerBar));
+
   return {
     notes,
-    bpm: midi.header.tempos[0]?.bpm,
+    bpm,
     name: midi.name || undefined,
     channels: Array.from(channels).sort((a, b) => a - b),
     trackInfos,
+    totalBars,
   };
 }
 

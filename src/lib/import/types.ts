@@ -29,6 +29,7 @@ export interface ImportResult {
   name?: string;
   channels: number[];
   trackInfos?: ImportTrackInfo[];
+  totalBars?: number;
 }
 
 // ---- Instrument pitch-range presets ------------------------------------

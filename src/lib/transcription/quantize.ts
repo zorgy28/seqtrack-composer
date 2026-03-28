@@ -1,6 +1,6 @@
 import type { Note } from "@/lib/midi/types";
 import type { RawMidiEvent } from "./types";
-import { STEPS_PER_BAR, MAX_BARS } from "@/lib/midi/constants";
+import { STEPS_PER_BAR } from "@/lib/midi/constants";
 import { createNote } from "@/lib/midi/pattern-generators";
 
 // ---- Public API -----------------------------------------------------
@@ -16,7 +16,7 @@ export function detectBars(events: RawMidiEvent[], bpm: number): number {
   const secondsPerBar = (60 / bpm) * 4; // 4 beats per bar
   const rawBars = Math.ceil(maxTime / secondsPerBar);
 
-  return Math.max(1, Math.min(rawBars, MAX_BARS));
+  return Math.max(1, rawBars);
 }
 
 /**

@@ -3,7 +3,7 @@
 import { useState, useRef, useMemo, useCallback, memo, useEffect } from "react";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import { useProject } from "@/providers/project-provider";
-import { useTrack, useUpdatePattern, useSelectedChannel, useProjectMeta } from "@/stores/project-store";
+import { useTrack, useUpdatePattern, useSelectedChannel, useProjectMeta, useSetActivePatternAll } from "@/stores/project-store";
 import { useSoundControl } from "@/hooks/use-sound-control";
 import { SEQTRAK_TRACKS, STEPS_PER_BAR, DRUM_CHANNELS, SYNTH_CHANNELS, getTrackBgActiveClass, getTrackSolidClass } from "@/lib/midi/constants";
 import { toggleNoteInPattern } from "@/lib/midi/pattern-generators";
@@ -663,9 +663,66 @@ const BeatNumbersHeader = memo(function BeatNumbersHeader({
   );
 });
 
+// ─── PatternNavigator ─────────────────────────────────────────
+
+const PatternNavigator = memo(function PatternNavigator({
+  project,
+}: {
+  project: { tracks: Record<SeqtrackChannel, { patterns: Pattern[]; activePattern: number }> };
+}) {
+  const setActivePatternAll = useSetActivePatternAll();
+
+  const maxPatterns = Math.max(
+    ...Object.values(project.tracks).map((t) => t?.patterns.length ?? 1),
+  );
+
+  if (maxPatterns <= 1) return null;
+
+  // Determine bar range labels by accumulating bars from the reference track (ch 1)
+  const refTrack = project.tracks[1 as SeqtrackChannel];
+  const barRanges: Array<{ start: number; end: number }> = [];
+  let barAccum = 0;
+  for (let i = 0; i < maxPatterns; i++) {
+    const bars = refTrack?.patterns[i]?.bars ?? 1;
+    barRanges.push({ start: barAccum + 1, end: barAccum + bars });
+    barAccum += bars;
+  }
+
+  // Use the first track that has an activePattern as the current index
+  const activeIndex = refTrack?.activePattern ?? 0;
+
+  return (
+    <div className="flex items-center gap-1 px-2 py-1 border-b border-border">
+      <span className="text-xs text-muted-foreground mr-1">Patterns:</span>
+      {Array.from({ length: maxPatterns }, (_, i) => {
+        const range = barRanges[i];
+        const label = range.start === range.end
+          ? `P${i + 1} (${range.start})`
+          : `P${i + 1} (${range.start}-${range.end})`;
+        const isActive = i === activeIndex;
+        return (
+          <button
+            key={i}
+            onClick={() => setActivePatternAll(i)}
+            className={cn(
+              "px-2 py-0.5 rounded text-xs font-mono transition-colors",
+              isActive
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground hover:bg-accent",
+            )}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+});
+
 // ─── StepGrid (public export) ──────────────────────────────────
 
 export function StepGrid({ currentStep }: { currentStep?: number | null }) {
+  const { project } = useProject();
   const refTrack = useTrack(1 as SeqtrackChannel);
   // Use first track's pattern bars as reference
   const refPattern = refTrack.patterns[refTrack.activePattern];
@@ -673,6 +730,9 @@ export function StepGrid({ currentStep }: { currentStep?: number | null }) {
 
   return (
     <div className="space-y-0" style={{ contain: "layout style" }}>
+      {/* Pattern navigator — only visible when multi-pattern */}
+      <PatternNavigator project={project} />
+
       {/* Beat numbers header with GPU-composited cursor overlay */}
       <div className="flex items-center gap-0">
         <div className="w-24 shrink-0" />
