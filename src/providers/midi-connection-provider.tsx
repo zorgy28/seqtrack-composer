@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import type { ReactNode } from "react";
 import type { MidiConnectionState, MidiDevice, SeqtrackChannel, ChannelTestResult } from "@/lib/midi/types";
+import { useDeviceProfile } from "@/providers/device-provider";
 
 interface MidiConnectionContextValue {
   status: MidiConnectionState["status"];
@@ -22,6 +23,7 @@ interface MidiConnectionContextValue {
 const MidiConnectionContext = createContext<MidiConnectionContextValue | null>(null);
 
 export function MidiConnectionProvider({ children }: { children: ReactNode }) {
+  const { autoDetectFromPort, profile } = useDeviceProfile();
   const [state, setState] = useState<MidiConnectionState>({
     status: "disconnected",
     device: null,
@@ -45,20 +47,40 @@ export function MidiConnectionProvider({ children }: { children: ReactNode }) {
       deviceIdRef.current = result.device?.id ?? null;
       setState(result);
 
+      // Auto-detect device profile on initial connection
+      if (result.device) {
+        autoDetectFromPort(result.device.name);
+      }
+
       // Listen for device changes
       const cleanup = onDeviceChange(({ outputs, inputs }) => {
+        let deviceToDetect: string | null = null;
+
         setState((prev) => {
+          // Find any recognized device, not just SEQTRAK
+          const recognized = outputs.find((o) => o.detectedDeviceId) ?? null;
           const seqtrack = outputs.find((o) => o.isSeqtrack) ?? null;
-          const newDevice = seqtrack ?? prev.device;
+          const newDevice = recognized ?? seqtrack ?? prev.device;
           deviceIdRef.current = newDevice?.id ?? null;
+
+          // Schedule profile detection outside setState to avoid updating another component during render
+          if (newDevice && newDevice.id !== prev.device?.id) {
+            deviceToDetect = newDevice.name;
+          }
+
           return {
             ...prev,
             outputs,
             inputs,
             device: newDevice,
-            status: seqtrack ? "connected" : prev.device ? "disconnected" : prev.status,
+            status: newDevice ? "connected" : prev.device ? "disconnected" : prev.status,
           };
         });
+
+        // Deferred: update device profile after setState completes
+        if (deviceToDetect) {
+          queueMicrotask(() => autoDetectFromPort(deviceToDetect!));
+        }
       });
 
       return cleanup;
@@ -85,12 +107,13 @@ export function MidiConnectionProvider({ children }: { children: ReactNode }) {
 
   const selectDevice = useCallback((device: MidiDevice) => {
     deviceIdRef.current = device.id;
+    autoDetectFromPort(device.name);
     setState((prev) => ({
       ...prev,
       device,
       status: "connected",
     }));
-  }, []);
+  }, [autoDetectFromPort]);
 
   const disconnect = useCallback(() => {
     deviceIdRef.current = null;
@@ -109,7 +132,7 @@ export function MidiConnectionProvider({ children }: { children: ReactNode }) {
     const { runConnectionTest } = await import("@/lib/webmidi/midi-test");
     await runConnectionTest(state.device.id, (result) => {
       setTestResults((prev) => {
-        const existing = prev.findIndex((r) => r.channel === result.channel);
+        const existing = prev.findIndex((r) => r.channel === result.channel && r.trackName === result.trackName);
         if (existing >= 0) {
           const updated = [...prev];
           updated[existing] = result;
@@ -117,17 +140,17 @@ export function MidiConnectionProvider({ children }: { children: ReactNode }) {
         }
         return [...prev, result];
       });
-    });
+    }, profile);
 
     setIsTesting(false);
-  }, [state.device]);
+  }, [state.device, profile]);
 
   const testChannel = useCallback(async (channel: SeqtrackChannel) => {
     if (!state.device) return;
     const { testSingleChannel } = await import("@/lib/webmidi/midi-test");
-    const result = testSingleChannel(state.device.id, channel);
+    const result = testSingleChannel(state.device.id, channel, profile);
     setTestResults((prev) => {
-      const existing = prev.findIndex((r) => r.channel === result.channel);
+      const existing = prev.findIndex((r) => r.channel === result.channel && r.trackName === result.trackName);
       if (existing >= 0) {
         const updated = [...prev];
         updated[existing] = result;
@@ -135,7 +158,7 @@ export function MidiConnectionProvider({ children }: { children: ReactNode }) {
       }
       return [...prev, result];
     });
-  }, [state.device]);
+  }, [state.device, profile]);
 
   const sendNoteToDevice = useCallback(async (
     channel: SeqtrackChannel,

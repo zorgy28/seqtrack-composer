@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from "react";
 import type { CompositionOutput } from "@/lib/ai/schema";
 import { useAsyncOperation, type AsyncStage } from "./use-async-operation";
 import { getSettings, buildProviderConfig } from "@/lib/settings";
+import { useDeviceProfile } from "@/providers/device-provider";
 
 export type ComposeStage = AsyncStage;
 
@@ -54,6 +55,7 @@ export interface UseComposeReturn {
 
 export function useCompose(): UseComposeReturn {
   const { stage, result, error, run, setResult, reset: resetAsync } = useAsyncOperation<CompositionOutput>();
+  const { profile } = useDeviceProfile();
   const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory());
   const lastParamsRef = useRef<ComposeParams | null>(null);
 
@@ -81,6 +83,7 @@ export function useCompose(): UseComposeReturn {
           bars: params.bars,
           swing: params.swing,
           providerConfig: buildProviderConfig(settings),
+          deviceId: profile.id,
         }),
       });
 
@@ -93,7 +96,7 @@ export function useCompose(): UseComposeReturn {
       addToHistory(params, data);
       return data;
     });
-  }, [run, addToHistory]);
+  }, [run, addToHistory, profile.id]);
 
   const refine = useCallback(async (instruction: string) => {
     if (!result || !lastParamsRef.current) return;
@@ -113,6 +116,7 @@ export function useCompose(): UseComposeReturn {
           bars: params.bars,
           swing: params.swing,
           providerConfig: buildProviderConfig(settings),
+          deviceId: profile.id,
           previousResult: result,
           refinementInstruction: instruction,
         }),

@@ -7,6 +7,7 @@ import type { ImportResult, ImportTrackInfo } from "@/lib/import/types";
 import type { SeqtrackChannel, SoundPreset } from "@/lib/midi/types";
 import { SEQTRAK_TRACKS } from "@/lib/midi/constants";
 import { getPresetsForChannel, findPresetById } from "@/lib/midi/sound-library";
+import { useDeviceProfile } from "@/providers/device-provider";
 import {
   Select,
   SelectContent,
@@ -38,6 +39,7 @@ export function MidiTab({
 }: MidiTabProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const { profile } = useDeviceProfile();
 
   // Local state for preset selections, initialized from trackInfos
   const [selections, setSelections] = useState<Partial<Record<SeqtrackChannel, number>>>({});
@@ -46,7 +48,7 @@ export function MidiTab({
     try {
       const { parseMidiFile } = await import("@/lib/import/midi-import");
       const buffer = await file.arrayBuffer();
-      const result = await parseMidiFile(buffer);
+      const result = await parseMidiFile(buffer, profile);
 
       // Initialize selections from suggested presets
       const initial: Partial<Record<SeqtrackChannel, number>> = {};
@@ -64,7 +66,7 @@ export function MidiTab({
     } catch (err) {
       onError(err instanceof Error ? err.message : "Failed to parse MIDI file");
     }
-  }, [onResult, onError, onPresetSelectionsChange]);
+  }, [onResult, onError, onPresetSelectionsChange, profile]);
 
   const handlePresetChange = useCallback((channel: SeqtrackChannel, presetId: number) => {
     setSelections((prev) => {

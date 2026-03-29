@@ -60,11 +60,24 @@ Restructure the project for maximum musical impact on the SEQTRAK hardware.
 - Melodic channels (8-11) use real MIDI note numbers
 - Keep the total note count approximately the same`;
 
-export function buildEnhanceSystemPrompt(action: EnhanceAction): string {
+// Inline profile type to avoid Turbopack circular deps
+type ProfileLike = {
+  id?: string;
+  displayName?: string;
+  architecture?: string;
+  prompts?: { channelDocs: string };
+  sounds?: { presets: Array<{ id: number; name: string; category: string; engine: string }> };
+};
+
+export function buildEnhanceSystemPrompt(action: EnhanceAction, profile?: ProfileLike): string {
+  const deviceName = profile?.displayName ?? "Yamaha SEQTRAK";
+  const channelDocs = profile?.prompts?.channelDocs ?? SEQTRAK_CHANNEL_DOCS;
+  const isSynth = profile?.architecture === "synth";
+
   const sections: string[] = [
-    "You are an expert music producer and MIDI programmer specializing in the Yamaha SEQTRAK groovebox. You receive an existing project and improve it based on the requested action.",
+    `You are an expert music producer and MIDI programmer specializing in the ${deviceName}. You receive an existing project and improve it based on the requested action.`,
     "",
-    SEQTRAK_CHANNEL_DOCS,
+    channelDocs,
     "",
     STEP_FORMAT_DOCS,
     "",
@@ -78,19 +91,25 @@ export function buildEnhanceSystemPrompt(action: EnhanceAction): string {
       break;
 
     case "sounds":
-      sections.push(SOUNDS_INSTRUCTIONS_PREFIX + buildSoundCatalog());
+      sections.push(SOUNDS_INSTRUCTIONS_PREFIX + buildSoundCatalog(profile));
       break;
 
     case "rearrange":
-      sections.push(REARRANGE_INSTRUCTIONS);
+      if (isSynth) {
+        sections.push("## Rearrange Mode\nThis is a single-channel synthesizer. Rearrangement is not applicable — focus on enhancing the existing melodic content on Channel 1.");
+      } else {
+        sections.push(REARRANGE_INSTRUCTIONS);
+      }
       break;
 
     case "all":
       sections.push(ENHANCE_INSTRUCTIONS);
       sections.push("");
-      sections.push(SOUNDS_INSTRUCTIONS_PREFIX + buildSoundCatalog());
-      sections.push("");
-      sections.push(REARRANGE_INSTRUCTIONS);
+      sections.push(SOUNDS_INSTRUCTIONS_PREFIX + buildSoundCatalog(profile));
+      if (!isSynth) {
+        sections.push("");
+        sections.push(REARRANGE_INSTRUCTIONS);
+      }
       break;
   }
 

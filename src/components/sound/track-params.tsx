@@ -3,6 +3,7 @@
 import type { SeqtrackChannel } from "@/lib/midi/types";
 import { getQuickCCs } from "@/lib/midi/cc-map";
 import { Slider } from "@/components/ui/slider";
+import { useDeviceProfile } from "@/providers/device-provider";
 
 interface TrackParamsProps {
   channel: SeqtrackChannel;
@@ -12,7 +13,8 @@ interface TrackParamsProps {
 }
 
 export function TrackParams({ channel, ccValues, onCCChange, disabled }: TrackParamsProps) {
-  const ccs = getQuickCCs(channel);
+  const { profile } = useDeviceProfile();
+  const ccs = getQuickCCs(channel, profile);
 
   if (ccs.length === 0) return null;
 

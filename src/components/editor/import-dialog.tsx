@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { useProject } from "@/providers/project-provider";
 import { useMidiConnection } from "@/hooks/use-midi-connection";
 import { useSoundControl } from "@/hooks/use-sound-control";
+import { useDeviceProfile } from "@/providers/device-provider";
 import { SEQTRAK_TRACKS, ALL_CHANNELS, STEPS_PER_BAR, MAX_PATTERNS_PER_TRACK, MAX_BARS, getTrackSolidClass } from "@/lib/midi/constants";
 import { importToMultiplePatterns } from "@/lib/import/convert";
 import type { SeqtrackChannel } from "@/lib/midi/types";
@@ -62,6 +63,8 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const { project, setProject } = useProject();
   const { device } = useMidiConnection();
   const { selectPreset } = useSoundControl();
+  const { profile } = useDeviceProfile();
+  const deviceChannels = profile.allChannels;
 
   // ── State ───────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<TabId>("sheet");
@@ -69,7 +72,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [instrument, setInstrument] = useState("Piano");
-  const [targetChannel, setTargetChannel] = useState<SeqtrackChannel>(9);
+  const [targetChannel, setTargetChannel] = useState<SeqtrackChannel>(profile.synthChannels[0] ?? 9);
   const [bars, setBars] = useState(4);
   const [presetSelections, setPresetSelections] = useState<Partial<Record<SeqtrackChannel, number>>>({});
   const [rangeStart, setRangeStart] = useState(0); // 0-based bar index
@@ -424,11 +427,12 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
                 onChange={(e) => setTargetChannel(parseInt(e.target.value, 10) as SeqtrackChannel)}
                 className="flex h-7 w-full rounded-lg border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
               >
-                {ALL_CHANNELS.map((ch) => {
-                  const info = SEQTRAK_TRACKS[ch];
+                {deviceChannels.map((ch) => {
+                  const profileTrack = profile.tracks.find(t => t.channel === ch);
+                  const name = profileTrack?.name ?? SEQTRAK_TRACKS[ch]?.name ?? `Ch ${ch}`;
                   return (
                     <option key={ch} value={ch}>
-                      Ch {ch} - {info.name}
+                      Ch {ch} - {name}
                     </option>
                   );
                 })}
@@ -542,13 +546,13 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
                 {Array.from(previewData.channelCounts.entries())
                   .sort(([a], [b]) => a - b)
                   .map(([ch, count]) => {
-                    const info = SEQTRAK_TRACKS[ch as SeqtrackChannel];
-                    if (!info) return null;
+                    const profileTrack = profile.tracks.find(t => t.channel === ch);
+                    const trackName = profileTrack?.name ?? SEQTRAK_TRACKS[ch as SeqtrackChannel]?.name ?? `Ch ${ch}`;
                     const dotColor = getTrackSolidClass(ch as SeqtrackChannel);
                     return (
                       <div key={ch} className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         <span className={cn("size-2 rounded-full", dotColor)} />
-                        <span className="font-medium">{info.name}</span>
+                        <span className="font-medium">{trackName}</span>
                         <span className="opacity-60">{count}</span>
                       </div>
                     );

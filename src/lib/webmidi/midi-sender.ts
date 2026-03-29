@@ -83,13 +83,15 @@ export function sendSysEx(
 }
 
 /**
- * Send all-notes-off on all channels (panic).
+ * Send all-notes-off on the given channels (panic).
+ * Defaults to channels 1-16 if no channels specified.
  */
-export function sendAllNotesOff(deviceId: string): void {
+export function sendAllNotesOff(deviceId: string, channels?: number[]): void {
   const output = getOutputPort(deviceId);
   if (!output) return;
 
-  for (let ch = 1; ch <= 11; ch++) {
+  const chs = channels ?? Array.from({ length: 16 }, (_, i) => i + 1);
+  for (const ch of chs) {
     output.sendAllNotesOff({ channels: ch });
   }
 }

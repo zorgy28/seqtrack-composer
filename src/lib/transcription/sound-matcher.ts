@@ -2,6 +2,15 @@ import type { SeqtrackChannel, SoundPreset, Project } from "@/lib/midi/types";
 import { getPresetsForChannel } from "@/lib/midi/sound-library";
 import type { SoundRecommendation } from "./types";
 
+// Inline profile type to avoid Turbopack circular deps
+type ProfileLike = {
+  id?: string;
+  architecture?: string;
+  allChannels?: number[];
+  drumChannels?: number[];
+  sounds?: { presets: SoundPreset[] };
+};
+
 // ---- Helpers --------------------------------------------------------
 
 function presetToRecommendation(preset: SoundPreset): SoundRecommendation {
@@ -218,7 +227,13 @@ export function recommendSounds(
   channel: SeqtrackChannel,
   genre: string,
   stemName?: string,
+  profile?: ProfileLike,
 ): { primary: SoundRecommendation; alternatives: SoundRecommendation[] } {
+  // For non-SEQTRAK devices: pick from device's own preset library by category
+  if (profile && profile.id !== "seqtrak" && profile.sounds?.presets?.length) {
+    return recommendFromDevicePresets(profile.sounds.presets, genre);
+  }
+
   const presets = getPresetsForChannel(channel);
 
   // Sampler (channel 11) — use sampler genre map, falling back to AWM2 presets for lookup
@@ -292,16 +307,69 @@ export function recommendSounds(
   return { primary, alternatives };
 }
 
+// ---- Device-agnostic preset recommendation ----------------------------
+
+/** Genre-to-category mapping for non-SEQTRAK devices */
+const GENRE_CATEGORY_PREFERENCE: Record<string, string[]> = {
+  trap:    ["Bass", "Synth Lead", "Pad"],
+  hiphop:  ["Bass", "Keyboard", "Pad"],
+  house:   ["Bass", "Synth Lead", "Pad"],
+  techno:  ["Bass", "Synth Lead", "Rhythmic"],
+  dnb:     ["Bass", "Synth Lead", "Rhythmic"],
+  lofi:    ["Keyboard", "Pad", "Bass"],
+  jazz:    ["Keyboard", "Bass", "Pad"],
+  ambient: ["Pad", "Strings", "SFX"],
+  default: ["Synth Lead", "Bass", "Pad"],
+};
+
+function recommendFromDevicePresets(
+  presets: SoundPreset[],
+  genre: string,
+): { primary: SoundRecommendation; alternatives: SoundRecommendation[] } {
+  const normalizedGenre = genre.toLowerCase().trim();
+  const preferredCategories = GENRE_CATEGORY_PREFERENCE[normalizedGenre] ?? GENRE_CATEGORY_PREFERENCE["default"];
+
+  // Pick primary from first preferred category that has presets
+  let primary: SoundPreset | undefined;
+  for (const cat of preferredCategories) {
+    primary = presets.find(p => p.category === cat);
+    if (primary) break;
+  }
+  if (!primary) primary = presets[0];
+  if (!primary) return { primary: { name: "Default", category: "Bass", id: 1 }, alternatives: [] };
+
+  // Pick alternatives from remaining categories
+  const alternatives: SoundRecommendation[] = [];
+  for (const cat of preferredCategories) {
+    const match = presets.find(p => p.category === cat && p.id !== primary!.id);
+    if (match) alternatives.push(presetToRecommendation(match));
+    if (alternatives.length >= 2) break;
+  }
+
+  return { primary: presetToRecommendation(primary), alternatives };
+}
+
 // ---- Genre Detection from Pattern ------------------------------------
 
 /**
  * Detect probable genre from current project patterns.
- * Analyzes kick pattern, BPM, and hat density.
+ * Analyzes kick pattern (ch1), hat pattern (ch4), and BPM.
+ * Gracefully handles projects without drum tracks (e.g., MicroFreak).
  */
 export function detectGenreFromPattern(project: Project): string {
   const kick = project.tracks[1 as SeqtrackChannel];
   const hat = project.tracks[4 as SeqtrackChannel];
   const bpm = project.bpm;
+
+  // If no drum tracks exist (single-channel synth), use BPM-only heuristic
+  if (!kick || !hat) {
+    if (bpm >= 118 && bpm <= 145) return "house";
+    if (bpm >= 130 && bpm <= 170) return "trap";
+    if (bpm >= 160 && bpm <= 180) return "dnb";
+    if (bpm >= 70 && bpm <= 95) return "hiphop";
+    if (bpm >= 60 && bpm <= 90) return "lofi";
+    return "default";
+  }
 
   const kickPattern = kick.patterns[kick.activePattern];
   const hatPattern = hat.patterns[hat.activePattern];
@@ -309,7 +377,6 @@ export function detectGenreFromPattern(project: Project): string {
   const kickSteps = new Set(kickPattern.notes.map((n) => n.step % 16));
   const hatNoteCount = hatPattern.notes.length;
 
-  // Four-on-the-floor detection (kicks on 0,4,8,12)
   const isFourOnFloor =
     kickSteps.has(0) && kickSteps.has(4) && kickSteps.has(8) && kickSteps.has(12);
 

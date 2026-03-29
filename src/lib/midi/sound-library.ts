@@ -1,4 +1,7 @@
 import type { SoundPreset, SoundCategory, SoundEngine, SeqtrackChannel } from "./types";
+
+// Use inline shape to avoid circular dependency with @/lib/devices/types
+type ProfileLike = { tracks?: Array<{ channel: number }>; sounds?: { getPresetsForTrack: (i: number) => SoundPreset[] } };
 import { loadScannedPresets } from "./sound-scanner";
 import { COMPLETE_PRESETS } from "./sound-data-complete";
 
@@ -81,8 +84,19 @@ export function getPresetsByCategory(category: SoundCategory): SoundPreset[] {
   return getAllPresets().filter((p) => p.category === category);
 }
 
-/** Get presets compatible with a specific channel */
-export function getPresetsForChannel(channel: SeqtrackChannel): SoundPreset[] {
+/**
+ * Get presets compatible with a specific channel.
+ * When a ProfileLike is provided, delegates to its sound library.
+ * Otherwise uses SEQTRAK-specific channel-to-engine mapping.
+ */
+export function getPresetsForChannel(channel: SeqtrackChannel, profile?: ProfileLike): SoundPreset[] {
+  if (profile?.tracks && profile.sounds) {
+    const trackIndex = profile.tracks.findIndex(t => t.channel === channel);
+    if (trackIndex >= 0) return profile.sounds.getPresetsForTrack(trackIndex);
+    return [];
+  }
+
+  // SEQTRAK default mapping
   if (channel >= 1 && channel <= 7) return getPresetsByEngine("drum");
   if (channel === 8 || channel === 9) return getPresetsByEngine("awm2");
   if (channel === 10) return getPresetsByEngine("dx");

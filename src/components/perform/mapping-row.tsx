@@ -16,6 +16,7 @@ import { SelectGroup, SelectLabel } from "@/components/ui/select";
 import { ALL_CHANNELS, SEQTRAK_TRACKS } from "@/lib/midi/constants";
 import { getCCsForChannel } from "@/lib/midi/cc-map";
 import type { SeqtrackChannel } from "@/lib/midi/types";
+import { useDeviceProfile } from "@/providers/device-provider";
 
 const GROUPS = ["Sound", "Effects", "Control", "Master FX", "DX", "Drums", "Synths", "Custom"];
 
@@ -49,7 +50,8 @@ export function MappingRow({
   onDrop,
   isDragTarget,
 }: MappingRowProps) {
-  const channelCCs = getCCsForChannel(mapping.channel);
+  const { profile } = useDeviceProfile();
+  const channelCCs = getCCsForChannel(mapping.channel, profile);
   const currentCCValue = currentOutput?.ccValue;
 
   return (
@@ -129,11 +131,15 @@ export function MappingRow({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {ALL_CHANNELS.map((ch) => (
-            <SelectItem key={ch} value={String(ch)}>
-              {SEQTRAK_TRACKS[ch].name}
-            </SelectItem>
-          ))}
+          {profile.allChannels.map((ch) => {
+            const trackInfo = profile.tracks.find(t => t.channel === ch);
+            const name = trackInfo?.name ?? SEQTRAK_TRACKS[ch]?.name ?? `Ch ${ch}`;
+            return (
+              <SelectItem key={ch} value={String(ch)}>
+                {name}
+              </SelectItem>
+            );
+          })}
         </SelectContent>
       </Select>
 

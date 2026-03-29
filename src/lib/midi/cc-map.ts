@@ -1,5 +1,8 @@
 import type { CCParameter } from "./types";
 
+// Use inline shape to avoid circular dependency with @/lib/devices/types
+type ProfileLike = { id?: string; ccParams?: CCParameter[]; drumChannels?: number[]; synthChannels?: number[]; tracks?: Array<{ type: string; channel: number }> };
+
 /**
  * Complete MIDI CC parameter table for the Yamaha SEQTRAK.
  * Source: SEQTRAK Data List V2.00, pages 111-114.
@@ -61,25 +64,43 @@ export const CC_PARAMS: CCParameter[] = [
   { cc: 119, name: "FM Mod Feedback",    shortName: "FBK",  min: 0, max: 127, defaultValue: 0,   bipolar: false, channels: "dx",    category: "fm" },
 ];
 
-/** Get CC parameters applicable to a specific channel */
-export function getCCsForChannel(channel: number): CCParameter[] {
-  return CC_PARAMS.filter((p) => {
+/**
+ * Get CC parameters applicable to a specific channel.
+ * When a ProfileLike is provided, uses its CC list and channel layout.
+ * Otherwise falls back to the SEQTRAK CC_PARAMS with hardcoded channel ranges.
+ */
+export function getCCsForChannel(channel: number, profile?: ProfileLike): CCParameter[] {
+  const params = profile?.ccParams ?? CC_PARAMS;
+  const drumChs = profile?.drumChannels ?? [1, 2, 3, 4, 5, 6, 7];
+  const synthChs = profile?.synthChannels ?? [8, 9, 10, 11];
+  const fmChs = profile?.tracks ? profile.tracks.filter(t => t.type === "fm").map(t => t.channel) : [10];
+
+  return params.filter((p) => {
     if (p.channels === "all") return true;
-    if (p.channels === "drum") return channel >= 1 && channel <= 7;
-    if (p.channels === "synth") return channel >= 8 && channel <= 11;
-    if (p.channels === "dx") return channel === 10;
+    if (p.channels === "drum") return drumChs.includes(channel);
+    if (p.channels === "synth") return synthChs.includes(channel);
+    if (p.channels === "dx") return fmChs.includes(channel);
     if (Array.isArray(p.channels)) return (p.channels as number[]).includes(channel);
     return false;
   });
 }
 
-/** Get the most useful CCs for quick sound shaping (UI knob panel) */
-export function getQuickCCs(channel: number): CCParameter[] {
+/**
+ * Get the most useful CCs for quick sound shaping (UI knob panel).
+ * When a ProfileLike is provided, returns a curated subset of its CCs.
+ */
+export function getQuickCCs(channel: number, profile?: ProfileLike): CCParameter[] {
+  if (profile && profile.id !== "seqtrak") {
+    // For non-SEQTRAK devices, all CCs are relevant for the knob panel
+    return getCCsForChannel(channel, profile);
+  }
+
+  // SEQTRAK-specific quick CC selection
   const primary = [74, 71, 73, 75, 91, 94, 7, 10]; // cutoff, res, atk, dec, rev, dly, vol, pan
   const fmExtra = [116, 117, 118, 119];
   const drumExtra = [25]; // drum pitch
 
-  const ccs = getCCsForChannel(channel);
+  const ccs = getCCsForChannel(channel, profile);
   const ids = new Set(primary);
   if (channel === 10) fmExtra.forEach((cc) => ids.add(cc));
   if (channel >= 1 && channel <= 7) drumExtra.forEach((cc) => ids.add(cc));

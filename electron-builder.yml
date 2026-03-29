@@ -9,6 +9,8 @@ directories:
 files:
   - electron/**/*
   - .next/**/*
+  - "!.next/dev"
+  - "!.next/cache"
   - public/**/*
   - node_modules/**/*
   - package.json

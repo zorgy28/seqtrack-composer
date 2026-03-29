@@ -23,6 +23,8 @@ export interface ProjectActions {
   updateBpm: (bpm: number) => void;
   setActivePatternAll: (index: number) => void;
   loadTranscription: (option: TranscriptionOption) => void;
+  /** Create a fresh project for a specific device profile */
+  createProjectForDevice: (profile: { id?: string; allChannels?: number[] }) => void;
   /** Called once IDB is ready — internal, not part of public API */
   _hydrateFromIdb: (project: Project) => void;
 }
@@ -165,6 +167,12 @@ export function createProjectStore(initialProject?: Project) {
       const updated = { ...newProject, updatedAt: new Date().toISOString() };
       set({ project: updated });
       autoSave(updated);
+    },
+
+    createProjectForDevice: (profile: { id?: string; allChannels?: number[] }) => {
+      const newProject = createEmptyProject("Untitled Project", profile as any);
+      set({ project: newProject, selectedChannel: (profile.allChannels?.[0] ?? 1) as SeqtrackChannel });
+      autoSave(newProject);
     },
 
     _hydrateFromIdb: (project: Project) => {

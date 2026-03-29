@@ -12,6 +12,24 @@ import type { SeqtrackChannel, Note, Pattern } from "@/lib/midi/types";
 import { cn } from "@/lib/utils";
 import { SoundPicker } from "./sound-picker";
 import { getPresetsForChannel } from "@/lib/midi/sound-library";
+import { useDeviceProfile } from "@/providers/device-provider";
+
+// KO II pad labels by MIDI note number
+const KO2_PAD_LABELS: Record<number, string> = {
+  // Group A — Drums (36-47)
+  36: "A. Kick", 37: "A0 Kick2", 38: "FX Clap", 39: "A1 Snr2",
+  40: "A2 Snare", 41: "A3 Rim", 42: "A4 Tambo", 43: "A5 HH-C",
+  44: "A6 HH-O", 45: "A7 Perc", 46: "A8 Ride", 47: "A9 Ride2",
+  // Group B — Bass (48-59)
+  48: "B. Bass1", 49: "B0", 50: "B-FX", 51: "B1", 52: "B2", 53: "B3",
+  54: "B4", 55: "B5", 56: "B6", 57: "B7", 58: "B8", 59: "B9",
+  // Group C — Melody (60-71)
+  60: "C. Mel1", 61: "C0", 62: "C-FX", 63: "C1", 64: "C2", 65: "C3",
+  66: "C4", 67: "C5", 68: "C6", 69: "C7", 70: "C8", 71: "C9",
+  // Group D — User (72-83)
+  72: "D. User1", 73: "D0", 74: "D-FX", 75: "D1", 76: "D2", 77: "D3",
+  78: "D4", 79: "D5", 80: "D6", 81: "D7", 82: "D8", 83: "D9",
+};
 
 // Stable no-op for StepCell onClick when delegation is used
 const noop = () => {};
@@ -66,10 +84,15 @@ const TrackHeader = memo(function TrackHeader({
   const { selectedChannel, setSelectedChannel } = useSelectedChannel();
   const { setProject, project } = useProject();
   const { getTrackSound } = useSoundControl();
+  const { profile } = useDeviceProfile();
   const [pickerOpen, setPickerOpen] = useState(false);
   const nameRef = useRef<HTMLButtonElement>(null);
 
-  const info = SEQTRAK_TRACKS[channel];
+  // Use profile track info if available, fall back to SEQTRAK_TRACKS
+  const profileTrack = profile.tracks.find(t => t.channel === channel);
+  const info = profileTrack
+    ? { name: profileTrack.name, type: profileTrack.type, color: profileTrack.color, channel }
+    : SEQTRAK_TRACKS[channel];
   const dotColor = getTrackSolidClass(channel);
   const trackColor = getTrackBgActiveClass(channel);
   const currentPreset = getTrackSound(channel).preset;
@@ -263,6 +286,9 @@ const PianoRollGrid = memo(function PianoRollGrid({
   /** Map of step → array of MIDI pitches playing on OTHER channels at that step */
   ensembleAtStep: Map<number, number[]>;
 }) {
+  const { profile } = useDeviceProfile();
+  const isKo2 = profile.id === "ko2";
+
   // Build note lookup: "step-pitch" → Note
   const noteMap = useMemo(() => {
     const map = new Map<string, Note>();
@@ -331,8 +357,11 @@ const PianoRollGrid = memo(function PianoRollGrid({
               isC && "border-t border-border/40",
             )}
           >
-            <div className="w-10 text-[10px] font-mono text-right pr-1 text-muted-foreground shrink-0">
-              {midiToNoteName(pitch)}
+            <div className={cn(
+              "text-[10px] font-mono text-right pr-1 text-muted-foreground shrink-0",
+              isKo2 ? "w-16" : "w-10",
+            )}>
+              {isKo2 ? (KO2_PAD_LABELS[pitch] ?? midiToNoteName(pitch)) : midiToNoteName(pitch)}
             </div>
             <div className="flex gap-px flex-1 pr-2">
               {Array.from({ length: totalSteps }, (_, step) => {
@@ -464,7 +493,11 @@ const MelodicTrackRow = memo(function MelodicTrackRow({
   const { selectedChannel, setSelectedChannel } = useSelectedChannel();
   const meta = useProjectMeta();
   const { project } = useProject();
-  const info = SEQTRAK_TRACKS[channel];
+  const { profile } = useDeviceProfile();
+  const profileTrack = profile.tracks.find(t => t.channel === channel);
+  const info = profileTrack
+    ? { name: profileTrack.name, type: profileTrack.type, color: profileTrack.color, channel }
+    : SEQTRAK_TRACKS[channel];
   const pattern = track.patterns[track.activePattern];
   const totalSteps = pattern.bars * STEPS_PER_BAR;
   const colorClass = getTrackBgActiveClass(channel);
@@ -723,7 +756,11 @@ const PatternNavigator = memo(function PatternNavigator({
 
 export function StepGrid({ currentStep }: { currentStep?: number | null }) {
   const { project } = useProject();
-  const refTrack = useTrack(1 as SeqtrackChannel);
+  const { profile } = useDeviceProfile();
+  const drumChannels = profile.drumChannels.length > 0 ? profile.drumChannels : DRUM_CHANNELS;
+  const synthChannels = profile.synthChannels.length > 0 ? profile.synthChannels : SYNTH_CHANNELS;
+  const firstChannel = profile.allChannels[0] ?? 1;
+  const refTrack = useTrack(firstChannel as SeqtrackChannel);
   // Use first track's pattern bars as reference
   const refPattern = refTrack.patterns[refTrack.activePattern];
   const totalSteps = refPattern.bars * STEPS_PER_BAR;
@@ -744,19 +781,23 @@ export function StepGrid({ currentStep }: { currentStep?: number | null }) {
         </div>
       </div>
 
-      {/* Drum section */}
-      <div className="seqtrak-section-label px-2 py-1.5">
-        Drums
-      </div>
-      {DRUM_CHANNELS.map((ch) => (
-        <DrumTrackRow key={ch} channel={ch} />
-      ))}
+      {/* Drum section — only for devices with drum channels */}
+      {profile.ui.showDrumGrid && drumChannels.length > 0 && (
+        <>
+          <div className="seqtrak-section-label px-2 py-1.5">
+            Drums
+          </div>
+          {drumChannels.map((ch) => (
+            <DrumTrackRow key={ch} channel={ch} />
+          ))}
+        </>
+      )}
 
-      {/* Synth section */}
+      {/* Synth / melodic section */}
       <div className="seqtrak-section-label px-2 py-1.5 mt-2">
-        Synths
+        {profile.architecture === "synth" ? profile.displayName : "Synths"}
       </div>
-      {SYNTH_CHANNELS.map((ch) => (
+      {synthChannels.map((ch) => (
         <MelodicTrackRow key={ch} channel={ch} />
       ))}
     </div>

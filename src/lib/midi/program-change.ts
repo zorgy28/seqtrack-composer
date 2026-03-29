@@ -1,33 +1,35 @@
 import type { SoundPreset, SeqtrackChannel } from "./types";
+
+// Use inline shape to avoid circular dependency with @/lib/devices/types
+type ProfileLike = { programChange: { sendSequence: (output: any, channel: number, bankMSB: number, bankLSB: number, program: number) => void } };
 import { getOutputPort } from "@/lib/webmidi/midi-connection";
 
 /**
- * Select a sound on the SEQTRAK via Bank Select + Program Change.
+ * Select a sound on the connected device via Bank Select + Program Change.
  *
- * CRITICAL SEQTRAK QUIRK: The device requires the Bank Select LSB (CC32)
- * to be re-sent AFTER the Program Change message for the change to take effect.
- * Sequence: CC0 → CC32 → PC → CC32 (again)
+ * When a ProfileLike is provided, uses its programChange.sendSequence strategy.
+ * Otherwise falls back to the SEQTRAK quirk (CC0 → CC32 → PC → CC32 re-send).
  *
- * Source: SEQTRAK Data List V2.00, page 117.
+ * SEQTRAK quirk source: SEQTRAK Data List V2.00, page 117.
  */
 export function selectSound(
   deviceId: string,
   channel: SeqtrackChannel,
   preset: SoundPreset,
+  profile?: ProfileLike,
 ): void {
   const output = getOutputPort(deviceId);
   if (!output) return;
 
-  // Step 1: Bank Select MSB (CC0)
+  if (profile) {
+    profile.programChange.sendSequence(output, channel, preset.bankMSB, preset.bankLSB, preset.programNumber);
+    return;
+  }
+
+  // SEQTRAK default: CC0 → CC32 → PC → CC32 (re-send quirk)
   output.sendControlChange(0, preset.bankMSB, { channels: channel });
-
-  // Step 2: Bank Select LSB (CC32)
   output.sendControlChange(32, preset.bankLSB, { channels: channel });
-
-  // Step 3: Program Change
   output.sendProgramChange(preset.programNumber, { channels: channel });
-
-  // Step 4: Re-send Bank Select LSB to trigger the actual change (SEQTRAK quirk)
   output.sendControlChange(32, preset.bankLSB, { channels: channel });
 }
 

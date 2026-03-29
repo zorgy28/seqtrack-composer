@@ -5,6 +5,7 @@ import { AppSidebar } from "./app-sidebar";
 import { AppHeader } from "./app-header";
 import { ProjectProvider } from "@/providers/project-provider";
 import { MidiConnectionProvider } from "@/providers/midi-connection-provider";
+import { DeviceProvider } from "@/providers/device-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AudioMonitor } from "@/components/editor/audio-monitor";
 import { TransportProvider } from "@/providers/transport-provider";
@@ -12,6 +13,7 @@ import { TransportBar } from "./transport-bar";
 
 export function AppShell({ children }: { children: ReactNode }) {
   return (
+    <DeviceProvider>
     <MidiConnectionProvider>
     <ProjectProvider>
       <TransportProvider>
@@ -29,5 +31,6 @@ export function AppShell({ children }: { children: ReactNode }) {
       </TransportProvider>
     </ProjectProvider>
     </MidiConnectionProvider>
+    </DeviceProvider>
   );
 }

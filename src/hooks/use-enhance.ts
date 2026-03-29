@@ -4,6 +4,7 @@ import { useCallback } from "react";
 import type { Project, Pattern } from "@/lib/midi/types";
 import { useAsyncOperation, type AsyncStage } from "./use-async-operation";
 import { getSettings, buildProviderConfig } from "@/lib/settings";
+import { useDeviceProfile } from "@/providers/device-provider";
 
 export type EnhanceAction = "enhance" | "sounds" | "rearrange" | "all";
 export type EnhanceStage = AsyncStage;
@@ -32,6 +33,7 @@ export interface UseEnhanceReturn {
 
 export function useEnhance(): UseEnhanceReturn {
   const { stage, result, error, run: runAsync, reset } = useAsyncOperation<EnhanceResult>();
+  const { profile } = useDeviceProfile();
 
   const run = useCallback(async (
     project: Project,
@@ -43,7 +45,7 @@ export function useEnhance(): UseEnhanceReturn {
       const res = await fetch("/api/enhance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project, instruction, action, providerConfig: buildProviderConfig(settings) }),
+        body: JSON.stringify({ project, instruction, action, providerConfig: buildProviderConfig(settings), deviceId: profile.id }),
       });
 
       if (!res.ok) {

@@ -8,6 +8,8 @@ import type {
   DrumStyle,
   FullStyle,
 } from "./types";
+// Use inline shape to avoid circular dependency with @/lib/devices/types
+type ProfileLike = { id?: string; allChannels?: number[] };
 import {
   ALL_CHANNELS,
   STEPS_PER_BAR,
@@ -47,9 +49,15 @@ export function createTrack(channel: SeqtrackChannel): Track {
   };
 }
 
-export function createEmptyProject(name = "Untitled Project"): Project {
+/**
+ * Create an empty project. When a ProfileLike is provided,
+ * initializes tracks for that device's channel layout.
+ * Otherwise defaults to SEQTRAK's 11 channels.
+ */
+export function createEmptyProject(name = "Untitled Project", profile?: ProfileLike): Project {
+  const channels = profile?.allChannels ?? ALL_CHANNELS;
   const tracks = {} as Record<SeqtrackChannel, Track>;
-  for (const ch of ALL_CHANNELS) {
+  for (const ch of channels) {
     tracks[ch] = createTrack(ch);
   }
 
@@ -64,6 +72,7 @@ export function createEmptyProject(name = "Untitled Project"): Project {
     quantize: "1/16",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    deviceId: profile?.id,
   };
 }
 

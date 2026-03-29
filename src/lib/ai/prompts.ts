@@ -1,9 +1,35 @@
 import { buildSoundCatalog } from "./transcription-prompts";
 import { SEQTRAK_CHANNEL_DOCS, STEP_FORMAT_DOCS, NOTE_FORMAT_DOCS } from "./shared-prompt-blocks";
 
+// Inline type to avoid circular dependency chain through @/lib/devices/types → @/lib/midi/types
+interface DeviceProfileForPrompts {
+  id: string;
+  displayName: string;
+  architecture: string;
+  prompts: {
+    channelDocs: string;
+    genreInstructions: string | null;
+    compositionRules: string;
+  };
+  sounds: {
+    presets: Array<{ id: number; name: string; category: string }>;
+  };
+}
+
 let _cachedCompositionPrompt: string | null = null;
 
-export function buildCompositionSystemPrompt(): string {
+/**
+ * Build the AI composition system prompt.
+ * When a DeviceProfileForPrompts is provided, adapts the prompt for that device.
+ * Without a profile, returns the default SEQTRAK prompt (cached).
+ */
+export function buildCompositionSystemPrompt(profile?: DeviceProfileForPrompts): string {
+  // If a non-SEQTRAK profile is provided, build a device-specific prompt
+  if (profile && profile.id !== "seqtrak") {
+    return buildDeviceSpecificPrompt(profile);
+  }
+
+  // SEQTRAK default — cached for performance
   if (_cachedCompositionPrompt) return _cachedCompositionPrompt;
   _cachedCompositionPrompt = `You are an expert music producer and MIDI programmer. You generate step sequencer patterns for the Yamaha SEQTRAK groovebox.
 
@@ -178,6 +204,54 @@ When you receive a "Previous result" section in the prompt, you are REFINING an 
 
 // Keep backward compatibility — now backed by the cached function
 export const COMPOSITION_SYSTEM_PROMPT = buildCompositionSystemPrompt();
+
+/**
+ * Build a composition prompt for a non-SEQTRAK device.
+ */
+function buildDeviceSpecificPrompt(profile: DeviceProfileForPrompts): string {
+  const persona = profile.architecture === "synth"
+    ? `You are an expert synthesizer programmer and melodic composer. You generate step sequencer patterns for the ${profile.displayName} synthesizer.`
+    : `You are an expert MIDI programmer. You generate step sequencer patterns for the ${profile.displayName}.`;
+
+  const parts = [persona, ""];
+  parts.push(profile.prompts.channelDocs);
+  parts.push("");
+  parts.push(STEP_FORMAT_DOCS);
+  parts.push("");
+  parts.push(NOTE_FORMAT_DOCS);
+
+  if (profile.prompts.genreInstructions) {
+    parts.push("");
+    parts.push(profile.prompts.genreInstructions);
+  }
+
+  parts.push("");
+  parts.push(profile.prompts.compositionRules);
+
+  // Sound catalog from device library
+  if (profile.sounds.presets.length > 0) {
+    const catalog = profile.sounds.presets
+      .slice(0, 50)
+      .map((p) => `- ID ${p.id}: ${p.name} (${p.category})`)
+      .join("\n");
+    parts.push(`\n## Available Sound Presets\n${catalog}`);
+  }
+
+  parts.push(`
+## Output Format
+Return a JSON object with:
+- tracks: map of channel number -> { patterns: [{ name, bars, notes: [...], swing }] }
+- bpm: suggested BPM (if not specified by user)
+- description: what you generated
+- suggestions: 2-3 follow-up ideas
+
+## Refinement Mode
+When you receive a "Previous result" section in the prompt, you are REFINING an existing composition.
+- Preserve the parts the user didn't ask to change
+- Only modify what the refinement instruction specifies`);
+
+  return parts.join("\n");
+}
 
 export function buildUserPrompt(req: {
   prompt: string;

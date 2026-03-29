@@ -5,11 +5,15 @@ import { Sparkles, FileMusic } from "lucide-react";
 import { StepGrid } from "@/components/editor/step-grid";
 import { useProject } from "@/providers/project-provider";
 import { useTransport } from "@/providers/transport-provider";
+import { useDeviceProfile } from "@/providers/device-provider";
+import { useSoundControl } from "@/hooks/use-sound-control";
 import { applyFullPresetToProject, createEmptyProject } from "@/lib/midi/pattern-generators";
 import { STYLE_INFO } from "@/lib/midi/constants";
+import { useSelectedChannel } from "@/stores/project-store";
 import type { FullStyle } from "@/lib/midi/types";
 import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
+import { TrackParams } from "@/components/sound/track-params";
 
 const EnhanceDialog = dynamic(
   () => import("@/components/enhance/enhance-dialog").then((m) => ({ default: m.EnhanceDialog })),
@@ -32,8 +36,12 @@ const PRESET_GROUPS: Array<{ label: string; styles: FullStyle[] }> = [
 export default function EditorPage() {
   const { project, setProject } = useProject();
   const { currentStep } = useTransport();
+  const { profile } = useDeviceProfile();
+  const { selectedChannel } = useSelectedChannel();
+  const { getTrackSound, setCC } = useSoundControl();
   const [enhanceOpen, setEnhanceOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const showGenrePresets = profile.id === "seqtrak"; // genre presets are SEQTRAK-specific (11-channel patterns)
 
   const handleApplyPreset = useCallback((style: FullStyle) => {
     const info = STYLE_INFO[style];
@@ -49,7 +57,8 @@ export default function EditorPage() {
     <div className="flex flex-col h-full">
       {/* Toolbar */}
       <div className="flex flex-col gap-2 p-3 border-b border-border">
-        {/* Preset groups */}
+        {/* Preset groups — only for groovebox devices */}
+        {showGenrePresets && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           {PRESET_GROUPS.map((group) => (
             <div key={group.label} className="flex items-center gap-1">
@@ -70,6 +79,7 @@ export default function EditorPage() {
             </div>
           ))}
         </div>
+        )}
 
         {/* Actions row */}
         <div className="flex items-center gap-2">
@@ -125,6 +135,22 @@ export default function EditorPage() {
       <div className="flex-1 overflow-auto p-3 pb-20">
         <StepGrid currentStep={currentStep} />
       </div>
+
+      {/* Sound Design Panel — shown for synth devices */}
+      {profile.ui.showSoundDesignPanel && (
+        <div className="border-t border-border bg-card/50">
+          <div className="px-3 py-1.5">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Sound Design — {profile.displayName}
+            </span>
+          </div>
+          <TrackParams
+            channel={selectedChannel}
+            ccValues={getTrackSound(selectedChannel).ccValues}
+            onCCChange={(cc, value) => setCC(selectedChannel, cc, value)}
+          />
+        </div>
+      )}
 
       <EnhanceDialog open={enhanceOpen} onOpenChange={setEnhanceOpen} />
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} />

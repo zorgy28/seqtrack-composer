@@ -6,6 +6,7 @@ import type { SeqtrackChannel, SoundPreset, SoundEngine } from "@/lib/midi/types
 import { getPresetsForChannel, getCategoriesForEngine } from "@/lib/midi/sound-library";
 import { useSoundControl } from "@/hooks/use-sound-control";
 import { useProject } from "@/providers/project-provider";
+import { useDeviceProfile } from "@/providers/device-provider";
 import { recommendSounds, detectGenreFromPattern } from "@/lib/transcription/sound-matcher";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +28,7 @@ interface SoundPickerProps {
 
 export function SoundPicker({ channel, onClose }: SoundPickerProps) {
   const { project } = useProject();
+  const { profile } = useDeviceProfile();
   const { selectPreset, getTrackSound } = useSoundControl();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -44,16 +46,28 @@ export function SoundPicker({ channel, onClose }: SoundPickerProps) {
     [channel, detectedGenre],
   );
 
-  // Resolve suggested preset object from the library
-  const allPresets = useMemo(() => getPresetsForChannel(channel), [channel]);
+  // Resolve presets — use profile's sound library if available, fall back to channel-based
+  const allPresets = useMemo(() => {
+    if (profile.id !== "seqtrak") {
+      const trackIdx = profile.tracks.findIndex(t => t.channel === channel);
+      if (trackIdx >= 0) return profile.sounds.getPresetsForTrack(trackIdx);
+    }
+    return getPresetsForChannel(channel);
+  }, [channel, profile]);
 
   const suggestedPreset = useMemo(() => {
     return allPresets.find((p) => p.id === suggestion.primary.id) ?? null;
   }, [allPresets, suggestion.primary.id]);
 
-  // Get categories for this channel's engine
+  // Get categories — from presets for non-SEQTRAK devices, from engine for SEQTRAK
   const engine = engineForChannel(channel);
-  const categories = useMemo(() => getCategoriesForEngine(engine), [engine]);
+  const categories = useMemo(() => {
+    if (profile.id !== "seqtrak" && allPresets.length > 0) {
+      const cats = new Set(allPresets.map(p => p.category));
+      return Array.from(cats).sort();
+    }
+    return getCategoriesForEngine(engine);
+  }, [engine, profile.id, allPresets]);
 
   // Current preset for this track
   const currentPreset = getTrackSound(channel).preset;
@@ -128,6 +142,13 @@ export function SoundPicker({ channel, onClose }: SoundPickerProps) {
       ref={containerRef}
       className="w-96 max-h-[500px] bg-popover border border-border rounded-lg shadow-xl z-50 overflow-hidden flex flex-col"
     >
+      {/* Device notice for devices without Program Change */}
+      {profile.id === "ko2" && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-amber-500/10 border-b border-border text-xs text-amber-400">
+          <span>Change sounds directly on the KO II — MIDI Program Change is not supported.</span>
+        </div>
+      )}
+
       {/* A. AI Suggestion banner */}
       {suggestedPreset && (
         <button

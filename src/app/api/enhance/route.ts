@@ -9,7 +9,7 @@ import type { ProviderConfig } from "@/lib/settings";
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { providerConfig, project, instruction, action } = body;
+    const { providerConfig, project, instruction, action, deviceId } = body;
 
     if (!project || !instruction || !action) {
       return Response.json(
@@ -20,14 +20,21 @@ export async function POST(request: Request) {
 
     const config: ProviderConfig = providerConfig ?? { provider: "claude" };
 
+    // Lazy import device profile to avoid Turbopack init issues
+    let profile;
+    if (deviceId) {
+      const { getDeviceProfile } = await import("@/lib/devices/registry");
+      profile = getDeviceProfile(deviceId);
+    }
+
     console.log(
-      `[enhance] action=${action} provider=${config.provider} instruction="${instruction.slice(0, 50)}"`,
+      `[enhance] action=${action} device=${deviceId ?? "seqtrak"} provider=${config.provider} instruction="${instruction.slice(0, 50)}"`,
     );
 
     const output = await generateWithFallback({
       model: await getModelFromConfig(config),
       schema: enhanceResultSchema,
-      system: buildEnhanceSystemPrompt(action as EnhanceAction),
+      system: buildEnhanceSystemPrompt(action as EnhanceAction, profile),
       prompt: buildEnhanceUserPrompt(project, instruction, action as EnhanceAction),
       supportsStructuredOutput: supportsStructuredOutput(config.provider),
     });

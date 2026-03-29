@@ -1,8 +1,9 @@
 // ─── Hardware Types ─────────────────────────────────────────────
 
-export type TrackType = "drum" | "synth" | "fm" | "sampler";
+export type TrackType = "drum" | "synth" | "fm" | "sampler" | "mono-synth";
 
-export type SeqtrackChannel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
+/** MIDI channel number. Widened from union type for multi-device support. */
+export type SeqtrackChannel = number;
 
 export interface SeqtrackTrackInfo {
   name: string;
@@ -55,6 +56,8 @@ export interface Project {
   quantize: string;
   createdAt: string;
   updatedAt: string;
+  /** Which device profile this project was created for (undefined = legacy SEQTRAK) */
+  deviceId?: string;
 }
 
 // ─── AI Composition Types ───────────────────────────────────────
@@ -112,6 +115,8 @@ export interface MidiDevice {
   name: string;
   manufacturer: string;
   isSeqtrack: boolean;
+  /** Detected device profile ID (undefined for unrecognized devices) */
+  detectedDeviceId?: string;
 }
 
 export interface MidiConnectionState {

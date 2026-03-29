@@ -10,7 +10,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { providerConfig, prompt, bpm, scaleRoot, scaleName, bars, swing,
-            previousResult, refinementInstruction } = body;
+            previousResult, refinementInstruction, deviceId } = body;
 
     if (!prompt || typeof prompt !== "string") {
       return Response.json({ error: "prompt is required" }, { status: 400 });
@@ -18,12 +18,19 @@ export async function POST(request: Request) {
 
     const config: ProviderConfig = providerConfig ?? { provider: "claude" };
 
-    console.log(`[compose] provider=${config.provider} bars=${bars ?? 1} refine=${!!previousResult}`);
+    // Lazy import to avoid pulling the entire device/sound-library chain at module init
+    let profile;
+    if (deviceId) {
+      const { getDeviceProfile } = await import("@/lib/devices/registry");
+      profile = getDeviceProfile(deviceId);
+    }
+
+    console.log(`[compose] provider=${config.provider} device=${deviceId ?? "seqtrak"} bars=${bars ?? 1} refine=${!!previousResult}`);
 
     const output = await generateWithFallback({
       model: await getModelFromConfig(config),
       schema: compositionResultSchema,
-      system: buildCompositionSystemPrompt(),
+      system: buildCompositionSystemPrompt(profile),
       prompt: buildUserPrompt({ prompt, bpm, scaleRoot, scaleName, bars, swing,
                                 previousResult, refinementInstruction }),
       supportsStructuredOutput: supportsStructuredOutput(config.provider),

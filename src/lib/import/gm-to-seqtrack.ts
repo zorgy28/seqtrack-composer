@@ -1,5 +1,7 @@
 import type { SeqtrackChannel } from "@/lib/midi/types";
 
+type ProfileLike = { synthChannels?: number[] };
+
 /**
  * GM Program Number (0-127) to best SEQTRAK preset ID mapping.
  *
@@ -49,26 +51,31 @@ const BASS_FAMILIES = new Set(["bass"]);
 const PAD_FAMILIES = new Set(["synth pad", "ensemble", "strings"]);
 
 /**
- * Map a GM instrument family + program to the preferred SEQTRAK channel.
+ * Map a GM instrument family + program to the preferred channel.
  *
- * - Bass (GM 32-39) → always Ch 8
- * - Pads / Strings / Ensembles → Ch 10 (DX, FM synthesis — good for pads)
- * - Everything else → Ch 9 (AWM2 lead/keys)
+ * When a ProfileLike is provided, maps to that device's channels.
+ * For single-channel synths (MicroFreak), always returns channel 1.
+ * For SEQTRAK: Bass → Ch 8, Pads → Ch 10, Lead → Ch 9.
  *
  * The caller handles overflow when multiple tracks compete for the same channel.
  */
-export function gmFamilyToChannel(family: string, program: number): SeqtrackChannel {
+export function gmFamilyToChannel(family: string, program: number, profile?: ProfileLike): SeqtrackChannel {
+  // Single-channel devices: everything goes to the one channel
+  if (profile?.synthChannels && profile.synthChannels.length === 1) {
+    return profile.synthChannels[0];
+  }
+
   const f = family.toLowerCase();
+  const synthChs = profile?.synthChannels ?? [8, 9, 10, 11];
 
-  // Bass always goes to Ch 8
-  if (BASS_FAMILIES.has(f) || (program >= 32 && program <= 39)) return 8;
+  // Bass always goes to first synth channel
+  if (BASS_FAMILIES.has(f) || (program >= 32 && program <= 39)) return synthChs[0] ?? 8;
 
-  // Synth Pad / Ensemble / Strings → Ch 10 (DX)
-  if (PAD_FAMILIES.has(f) || (program >= 88 && program <= 103)) return 10;
+  // Synth Pad / Ensemble / Strings → last synth channel (DX on SEQTRAK)
+  if (PAD_FAMILIES.has(f) || (program >= 88 && program <= 103)) return synthChs[synthChs.length - 1] ?? 10;
 
-  // Synth Lead (GM 80-87) → Ch 9
-  // Default melodic → Ch 9
-  return 9;
+  // Default melodic → second synth channel
+  return synthChs[1] ?? synthChs[0] ?? 9;
 }
 
 // ---- GM Drum Kit → SEQTRAK drum preset IDs (Ch 1-7) --------------------

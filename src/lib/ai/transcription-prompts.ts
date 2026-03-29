@@ -1,16 +1,34 @@
 import { ALL_PRESETS } from "@/lib/midi/sound-library";
 import { SEQTRAK_CHANNEL_DOCS, STEP_FORMAT_DOCS, NOTE_FORMAT_DOCS } from "./shared-prompt-blocks";
 
+// Inline profile shape to avoid Turbopack circular deps
+type ProfileLike = {
+  id?: string;
+  displayName?: string;
+  architecture?: string;
+  prompts?: { channelDocs: string };
+  sounds?: { presets: Array<{ id: number; name: string; category: string; engine: string }> };
+};
+
 // ---- Dynamic sound catalog builder ----------------------------------
 
 let _cachedSoundCatalog: string | null = null;
 
-export function buildSoundCatalog(): string {
+/**
+ * Build a sound preset catalog for AI prompts.
+ * When a profile is provided, uses that device's preset library.
+ */
+export function buildSoundCatalog(profile?: ProfileLike): string {
+  // For non-SEQTRAK devices, build device-specific catalog (no caching — different per device)
+  if (profile && profile.id !== "seqtrak" && profile.sounds?.presets?.length) {
+    return buildDeviceSoundCatalog(profile);
+  }
+
+  // SEQTRAK default — cached
   if (_cachedSoundCatalog) return _cachedSoundCatalog;
   const presets = ALL_PRESETS;
   const lines: string[] = ["## Sound Library — Available Presets (select by ID)", ""];
 
-  // Group by engine then category
   const engines: Record<string, string> = {
     drum: "Drum Sounds (Channels 1-7, pitch=60)",
     awm2: "Synth Sounds (Ch 8-9)",
@@ -23,7 +41,6 @@ export function buildSoundCatalog(): string {
 
     lines.push(`### ${title}`);
 
-    // Group by category, show top 10 per category
     const byCategory = new Map<string, typeof enginePresets>();
     for (const p of enginePresets) {
       const cat = byCategory.get(p.category) || [];
@@ -44,11 +61,38 @@ export function buildSoundCatalog(): string {
   return _cachedSoundCatalog;
 }
 
+function buildDeviceSoundCatalog(profile: ProfileLike): string {
+  const presets = profile.sounds!.presets;
+  const lines: string[] = [`## ${profile.displayName} Sound Library — Available Presets (select by ID)`, ""];
+
+  const byCategory = new Map<string, typeof presets>();
+  for (const p of presets) {
+    const cat = byCategory.get(p.category) || [];
+    cat.push(p);
+    byCategory.set(p.category, cat);
+  }
+
+  for (const [category, catPresets] of byCategory) {
+    const top = catPresets.slice(0, 15);
+    const names = top.map(p => `${p.name}(${p.id})`).join(", ");
+    const suffix = catPresets.length > 15 ? ` (+${catPresets.length - 15} more)` : "";
+    lines.push(`${category}: ${names}${suffix}`);
+  }
+
+  return lines.join("\n");
+}
+
 // ---- System prompt --------------------------------------------------
 
 let _cachedTranscriptionPrompt: string | null = null;
 
-export function getTranscriptionSystemPrompt(): string {
+export function getTranscriptionSystemPrompt(profile?: ProfileLike): string {
+  // For non-SEQTRAK devices, build a device-specific prompt
+  if (profile && profile.id !== "seqtrak") {
+    return buildDeviceTranscriptionPrompt(profile);
+  }
+
+  // SEQTRAK default — cached
   if (_cachedTranscriptionPrompt) return _cachedTranscriptionPrompt;
   _cachedTranscriptionPrompt = `You are an expert music transcription engine for the Yamaha SEQTRAK groovebox. You receive MIDI data extracted from audio stems (via AI separation) and must convert it into playable SEQTRAK step-sequencer patterns.
 
@@ -132,6 +176,61 @@ Return a JSON object matching the schema exactly. Include:
 
 // Keep the old export for backward compatibility — now backed by the cached function
 export const TRANSCRIPTION_SYSTEM_PROMPT = getTranscriptionSystemPrompt();
+
+function buildDeviceTranscriptionPrompt(profile: ProfileLike): string {
+  const channelDocs = profile.prompts?.channelDocs ?? `Channel 1: ${profile.displayName}`;
+  const catalog = buildSoundCatalog(profile);
+  const isSynth = profile.architecture === "synth";
+
+  return `You are an expert music transcription engine for the ${profile.displayName}. You receive MIDI data extracted from audio stems and must convert it into playable step-sequencer patterns.
+
+${channelDocs}
+
+${STEP_FORMAT_DOCS}
+
+${NOTE_FORMAT_DOCS}
+
+${catalog}
+
+## Your Task
+
+Produce EXACTLY 3 arrangement options: faithful, simplified, creative.
+${isSynth ? `
+### Important: Single-Voice Device
+The ${profile.displayName} is a single-channel synthesizer. ALL notes must go to Channel 1.
+- Extract the most prominent melodic line from the source
+- For "faithful": keep the main melody as accurately as possible
+- For "simplified": reduce to the core melodic phrase
+- For "creative": reinterpret as an interesting synth sequence or arpeggio
+- NO drum mapping — this is a melodic instrument only
+- Maximum 4 simultaneous notes (paraphonic mode)
+` : `
+### Modes
+- Faithful: preserve all notes as accurately as possible
+- Simplified: core groove only, 3-5 active channels max
+- Creative: reinterpret freely with unexpected choices
+`}
+## Channel Assignment Rules
+${isSynth
+  ? `- ALL content goes to Channel 1 — pick the most musical single part from the source
+- If multiple stems are present, prioritize: melody > bass > chords > pads
+- Use real MIDI note numbers (no pitch=60 drum mode)`
+  : `- Distribute across available channels based on instrument type
+- Use the channel mapping documented above`}
+
+## Sound Selection Guidelines
+- Match the detected genre to appropriate sounds
+- For each track, pick 1 primary sound and up to 3 alternatives
+- Use the exact preset IDs from the library above
+- Consider the overall style and feel
+
+## CRITICAL: Fill All Bars
+Every pattern MUST have notes spanning the FULL requested bar length.
+If the source is shorter, REPEAT/LOOP to fill remaining bars.
+
+## Output Format
+Return a JSON object matching the schema exactly with 3 options + analysis section.`;
+}
 
 // ---- User prompt builder --------------------------------------------
 

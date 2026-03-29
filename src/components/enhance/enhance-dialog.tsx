@@ -14,10 +14,22 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useEnhance, type EnhanceAction } from "@/hooks/use-enhance";
 import { useProject } from "@/providers/project-provider";
+import { useDeviceProfile } from "@/providers/device-provider";
 import { useSoundControl } from "@/hooks/use-sound-control";
 import { getAllPresets } from "@/lib/midi/sound-library";
-import type { SeqtrackChannel } from "@/lib/midi/types";
+import type { SeqtrackChannel, Note } from "@/lib/midi/types";
 import { EnhancePreview } from "./enhance-preview";
+
+// SEQTRAK drum channel → KO II Group A note mapping
+const SEQTRAK_CH_TO_KO2_NOTE: Record<number, number> = {
+  1: 36, // Kick → A. pad
+  2: 40, // Snare → A2 pad
+  3: 38, // Clap → FX pad
+  4: 43, // Hat 1 → A5 pad
+  5: 44, // Hat 2 → A6 pad
+  6: 45, // Perc 1 → A7 pad
+  7: 47, // Perc 2 → A9 pad
+};
 
 // ── Constants ────────────────────────────────────────────────────
 
@@ -81,27 +93,57 @@ export function EnhanceDialog({ open, onOpenChange }: EnhanceDialogProps) {
     reset();
   }, [reset]);
 
+  const { profile } = useDeviceProfile();
+
   const handleApply = useCallback(() => {
     if (!result) return;
 
-    // Build new project with enhanced tracks
     const updatedProject = { ...project };
     const updatedTracks = { ...updatedProject.tracks };
+    const isSingleChannel = profile.allChannels.length === 1;
 
-    for (const t of result.tracks) {
-      const ch = t.channel as SeqtrackChannel;
-      const existing = { ...updatedTracks[ch] };
-      if (t.patterns.length > 0) {
-        existing.patterns = [...existing.patterns];
-        existing.patterns[existing.activePattern] = t.patterns[0];
+    if (isSingleChannel) {
+      // Single-channel devices (KO II, MicroFreak): merge all enhanced tracks onto channel 1
+      const targetCh = profile.allChannels[0] as SeqtrackChannel;
+      const existing = { ...updatedTracks[targetCh] };
+      const mergedNotes: Note[] = [];
+
+      for (const t of result.tracks) {
+        if (t.patterns.length === 0) continue;
+        const pattern = t.patterns[0];
+        const isKo2Drum = profile.id === "ko2" && t.channel >= 1 && t.channel <= 7;
+
+        for (const note of pattern.notes) {
+          if (isKo2Drum) {
+            // Map SEQTRAK drum channel to KO II pad note number
+            mergedNotes.push({ ...note, pitch: SEQTRAK_CH_TO_KO2_NOTE[t.channel] ?? 36 });
+          } else {
+            mergedNotes.push(note);
+          }
+        }
       }
-      updatedTracks[ch] = existing;
 
-      // Apply sound preset if recommended
-      if (t.soundPreset) {
-        const fullPreset = getAllPresets().find((p) => p.id === t.soundPreset!.id);
-        if (fullPreset) {
-          void selectPreset(ch, fullPreset);
+      existing.patterns = [...existing.patterns];
+      existing.patterns[existing.activePattern] = {
+        ...existing.patterns[existing.activePattern],
+        notes: mergedNotes,
+        swing: result.tracks[0]?.patterns[0]?.swing ?? existing.patterns[existing.activePattern].swing,
+      };
+      updatedTracks[targetCh] = existing;
+    } else {
+      // Multi-channel devices (SEQTRAK): apply per-channel as before
+      for (const t of result.tracks) {
+        const ch = t.channel as SeqtrackChannel;
+        const existing = { ...updatedTracks[ch] };
+        if (t.patterns.length > 0) {
+          existing.patterns = [...existing.patterns];
+          existing.patterns[existing.activePattern] = t.patterns[0];
+        }
+        updatedTracks[ch] = existing;
+
+        if (t.soundPreset) {
+          const fullPreset = getAllPresets().find((p) => p.id === t.soundPreset!.id);
+          if (fullPreset) void selectPreset(ch, fullPreset);
         }
       }
     }
@@ -113,7 +155,7 @@ export function EnhanceDialog({ open, onOpenChange }: EnhanceDialogProps) {
     setProject(updatedProject);
     onOpenChange(false);
     reset();
-  }, [result, project, setProject, selectPreset, onOpenChange, reset]);
+  }, [result, project, profile, setProject, selectPreset, onOpenChange, reset]);
 
   const handleClose = useCallback(
     (nextOpen: boolean) => {
