@@ -48,11 +48,12 @@ export const seqtrackProfile: DeviceProfile = {
 
   programChange: {
     sendSequence: (output, channel, bankMSB, bankLSB, program) => {
-      // SEQTRAK quirk: must re-send CC32 after PC for sound change to take effect
+      // SEQTRAK quirk: must re-send CC32 after PC for sound change to take effect.
+      // Add 10ms delay before the second CC32 to ensure the device processes the PC first.
       output.sendControlChange(0, bankMSB, { channels: channel });
       output.sendControlChange(32, bankLSB, { channels: channel });
       output.sendProgramChange(program, { channels: channel });
-      output.sendControlChange(32, bankLSB, { channels: channel });
+      output.sendControlChange(32, bankLSB, { channels: channel, time: `+10` });
     },
   },
 

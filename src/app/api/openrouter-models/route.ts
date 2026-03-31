@@ -26,19 +26,18 @@ export async function GET(request: Request) {
 
     const data = await res.json();
 
+    interface ORModel { id: string; name?: string; context_length?: number; }
+
     // Filter to text/chat models, exclude embeddings
     const models = (data.data ?? [])
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .filter((m: any) => m.id && !m.id.includes(":embed") && !m.id.includes("/embed"))
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((m: any) => ({
-        id: m.id as string,
-        name: (m.name || m.id) as string,
-        contextLength: (m.context_length ?? 0) as number,
-        isFree: (m.id as string).endsWith(":free"),
+      .filter((m: ORModel) => m.id && !m.id.includes(":embed") && !m.id.includes("/embed"))
+      .map((m: ORModel) => ({
+        id: m.id,
+        name: m.name || m.id,
+        contextLength: m.context_length ?? 0,
+        isFree: m.id.endsWith(":free"),
       }))
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .sort((a: any, b: any) => a.id.localeCompare(b.id));
+      .sort((a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id));
 
     return Response.json({ models });
   } catch {

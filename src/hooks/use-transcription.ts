@@ -47,6 +47,7 @@ export interface UseTranscriptionReturn {
 }
 
 const POLL_INTERVAL_MS = 2000;
+const MAX_POLL_RETRIES = 150; // 5 minutes at 2s intervals
 
 /**
  * Transform the Claude AI transcription result into the component-level
@@ -131,8 +132,18 @@ export function useTranscription(): UseTranscriptionReturn {
   // ---- Polling ----
 
   const poll = useCallback(
-    async (jobId: string): Promise<MLServiceStatus["result"]> => {
-      const res = await fetch(`/api/transcribe/status/${jobId}`);
+    async (jobId: string, retries = 0): Promise<MLServiceStatus["result"]> => {
+      if (abortRef.current?.signal.aborted) {
+        throw new DOMException("Polling aborted", "AbortError");
+      }
+
+      if (retries >= MAX_POLL_RETRIES) {
+        throw new Error("Transcription timed out after 5 minutes of polling");
+      }
+
+      const res = await fetch(`/api/transcribe/status/${jobId}`, {
+        signal: abortRef.current?.signal,
+      });
       if (!res.ok) {
         const text = await res.text().catch(() => "(no body)");
         throw new Error(`Status check failed (${res.status}): ${text}`);
@@ -163,7 +174,7 @@ export function useTranscription(): UseTranscriptionReturn {
 
       // Continue polling
       await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-      return poll(jobId);
+      return poll(jobId, retries + 1);
     },
     [],
   );

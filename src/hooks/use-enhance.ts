@@ -6,13 +6,15 @@ import { useAsyncOperation, type AsyncStage } from "./use-async-operation";
 import { getSettings, buildProviderConfig } from "@/lib/settings";
 import { useDeviceProfile } from "@/providers/device-provider";
 
-export type EnhanceAction = "enhance" | "sounds" | "rearrange" | "all";
+export type EnhanceAction = "enhance" | "sounds" | "sound-design" | "rearrange" | "all";
 export type EnhanceStage = AsyncStage;
 
 export interface EnhanceTrackResult {
   channel: number;
   patterns: Pattern[];
   soundPreset?: { id: number; name: string; category: string };
+  soundDesign?: Array<{ cc: number; value: number; name: string }>;
+  matrixRouting?: Array<{ source: string; destination: string; amount: number }>;
   reason?: string;
 }
 

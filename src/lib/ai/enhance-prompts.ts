@@ -23,6 +23,29 @@ You receive existing patterns and improve them musically. Your goal is to enhanc
 - If a track has no notes, leave it empty (don't invent parts that weren't there)
 - Return ALL tracks that had notes, even if unchanged`;
 
+const ENHANCE_INSTRUCTIONS_SYNTH = `## Enhancement Mode — Improve Existing Melodic Pattern
+
+You receive an existing single-channel melodic pattern and improve it musically. Your goal is to EDIT and REFINE, NOT bloat with extra notes.
+
+### What to do:
+- **Refine the melody**: improve note choices, add chromatic passing tones, vary intervals
+- **Improve rhythm**: adjust note lengths, add syncopation, create rhythmic interest
+- **Add velocity dynamics**: humanize with ghost notes (vel 40-55) and accents (vel 110-127)
+- **Adjust swing** if it improves the groove (swing field, -100 to 100)
+- **Add occasional rests**: silence is musical — remove redundant notes that clutter the phrase
+- **Improve phrasing**: create clear musical phrases with beginning, middle, and end
+- **Vary across bars**: don't repeat bar 1 identically — evolve the pattern
+
+### Rules — CRITICAL:
+- **Keep the same total note count** (±10%). Do NOT double or triple the number of notes.
+- **Preserve the core melodic idea** — same key, same general pitch range, same rhythmic feel
+- You MAY remove notes that don't serve the phrase — enhancement includes subtraction
+- You MAY change pitches to improve the melody (better intervals, smoother voice leading)
+- You MAY change durations to improve articulation
+- Do NOT add notes on every single step — leave space for the music to breathe
+- Return the pattern on Channel 1 only
+- Maximum 4 simultaneous notes (paraphonic limit)`;
+
 const SOUNDS_INSTRUCTIONS_PREFIX = `## Sound Selection Mode — Choose Optimal Presets
 
 Analyze each track's rhythmic character, note density, pitch range, and overall musical style.
@@ -87,11 +110,40 @@ export function buildEnhanceSystemPrompt(action: EnhanceAction, profile?: Profil
 
   switch (action) {
     case "enhance":
-      sections.push(ENHANCE_INSTRUCTIONS);
+      sections.push(isSynth ? ENHANCE_INSTRUCTIONS_SYNTH : ENHANCE_INSTRUCTIONS);
       break;
 
     case "sounds":
-      sections.push(SOUNDS_INSTRUCTIONS_PREFIX + buildSoundCatalog(profile));
+    case "sound-design":
+      if (profile?.id === "microfreak") {
+        sections.push(SOUNDS_INSTRUCTIONS_PREFIX + buildSoundCatalog(profile));
+        sections.push("");
+        sections.push(`## MicroFreak Sound Design — CC Parameters
+
+In addition to recommending a preset, design the sound by returning CC parameter values in the soundDesign field.
+
+Available CC parameters for MicroFreak:
+- CC9: Oscillator Type (10=BasicWaves, 21=SuperWave, 32=WaveTable, 42=Harmo, 53=KarplusStr, 64=V.Analog, 74=WaveShaper, 85=TwoOpFM, 95=Formant, 106=Chords, 117=Speech, 127=Modal)
+- CC10: Wave (0-127), CC12: Timbre (0-127), CC13: Shape (0-127)
+- CC23: Filter Cutoff (0-127), CC83: Resonance (0-127)
+- CC105: Attack (0-127), CC106: Decay (0-127), CC29: Sustain (0-127), CC26: Filter Env Amount (0-127, 64=center)
+- CC102: CycleEnv Rise (0-127), CC103: CycleEnv Fall (0-127), CC28: CycleEnv Hold (0-127), CC24: CycleEnv Amount (0-127)
+- CC93: LFO Rate (0-127), CC94: LFO Rate Sync (0-127)
+- CC5: Glide (0-127)
+
+Analyze the pattern's character and design a matching sound:
+- Fast patterns → short attack, short decay, low sustain
+- Sustained melodies → longer attack, high sustain
+- Bass lines → V.Analog or TwoOpFM osc, low cutoff, moderate resonance
+- Pads → WaveTable or Chords osc, slow attack, high sustain
+- Leads → SuperWave or BasicWaves, open filter
+- Evolving textures → add CycleEnv (CC102/103/24) for movement
+- Rhythmic wobble → fast CycleEnv rise/fall with high amount
+
+Return soundDesign array with at least CC9, CC23, CC105, CC106, CC29. For evolving sounds, also include CC102, CC103, CC24.`);
+      } else {
+        sections.push(SOUNDS_INSTRUCTIONS_PREFIX + buildSoundCatalog(profile));
+      }
       break;
 
     case "rearrange":
@@ -103,7 +155,7 @@ export function buildEnhanceSystemPrompt(action: EnhanceAction, profile?: Profil
       break;
 
     case "all":
-      sections.push(ENHANCE_INSTRUCTIONS);
+      sections.push(isSynth ? ENHANCE_INSTRUCTIONS_SYNTH : ENHANCE_INSTRUCTIONS);
       sections.push("");
       sections.push(SOUNDS_INSTRUCTIONS_PREFIX + buildSoundCatalog(profile));
       if (!isSynth) {
@@ -116,7 +168,7 @@ export function buildEnhanceSystemPrompt(action: EnhanceAction, profile?: Profil
   sections.push("");
   sections.push(`## Output Format
 Return a JSON object with:
-- tracks: array of { channel, patterns, soundPreset? (with id, name, category), reason? }
+- tracks: array of { channel, patterns, soundPreset?, soundDesign? (array of {cc, value, name}), matrixRouting? (array of {source, destination, amount}), reason? }
 - bpm: suggested BPM change (optional, omit if unchanged)
 - description: what you changed and why (1-3 sentences)
 - suggestions: 2-3 follow-up ideas for further improvement`);

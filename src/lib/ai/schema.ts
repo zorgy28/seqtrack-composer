@@ -15,6 +15,18 @@ export const patternSchema = z.object({
   swing: z.number().describe("Swing amount -100 to 100"),
 });
 
+const soundDesignParamSchema = z.object({
+  cc: z.number().describe("MIDI CC number (e.g., 9 for Oscillator Type, 23 for Filter Cutoff)"),
+  value: z.number().describe("Value 0-127"),
+  name: z.string().describe("Parameter name (e.g., 'Oscillator Type', 'Filter Cutoff')"),
+});
+
+const matrixSlotSchema = z.object({
+  source: z.string().describe("Modulation source: LFO, Env, CycleEnv, Press (aftertouch), Key (keyboard tracking)"),
+  destination: z.string().describe("Modulation destination: Pitch, Wave, Timbre, Shape, Cutoff, Resonance, etc."),
+  amount: z.number().describe("Modulation amount -100 to +100 (negative inverts)"),
+});
+
 const trackEntrySchema = z.object({
   channel: z.number().describe("MIDI channel 1-11"),
   patterns: z.array(patternSchema),
@@ -23,6 +35,12 @@ const trackEntrySchema = z.object({
     name: z.string(),
     category: z.string(),
   }).optional().describe("Recommended sound preset"),
+  soundDesign: z.array(soundDesignParamSchema).optional().describe(
+    "CC parameters for sound design. For MicroFreak: oscillator type, filter, envelope, LFO settings.",
+  ),
+  matrixRouting: z.array(matrixSlotSchema).optional().describe(
+    "Modulation matrix routing for MicroFreak. Source→Destination with amount. Applied manually on hardware.",
+  ),
   reason: z.string().optional().describe("Why this sound was chosen"),
 });
 

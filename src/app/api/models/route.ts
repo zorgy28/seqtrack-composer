@@ -13,7 +13,8 @@ export async function GET(request: Request) {
   const reqUrl = new URL(request.url);
   const baseUrl = reqUrl.searchParams.get("url") || "http://localhost:1234/v1";
   const type = reqUrl.searchParams.get("type") || "lmstudio";
-  const apiKey = reqUrl.searchParams.get("apiKey") || "";
+  // Read API key from header instead of query params (security: query params are logged/cached)
+  const apiKey = request.headers.get("x-api-key") || "";
 
   try {
     if (type === "zai") {

@@ -83,7 +83,8 @@ export const ko2Profile: DeviceProfile = {
 5. Velocity is important (1-127) — the pads are velocity-sensitive
 6. Duration matters for sustaining sounds (oneshot samples play full length regardless)
 7. Maximum 16 simultaneous voices — keep polyphony in mind
-8. Pattern can be up to 8 bars (128 steps)`,
+8. Pattern can be up to 8 bars (128 steps)
+9. ALWAYS fill ALL requested bars — if 2 bars, generate notes across steps 0-31; if 4 bars, fill steps 0-63`,
     channelRange: [1, 1],
     supportsMultiTrack: false,
   },

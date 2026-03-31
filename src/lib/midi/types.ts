@@ -157,6 +157,20 @@ export interface SoundPreset {
   programNumber: number; // Program Change value
 }
 
+/** A user-created MicroFreak preset with full parameter snapshot */
+export interface MicroFreakUserPreset extends SoundPreset {
+  /** CC number → 0-127 value captured via SysEx */
+  params: Record<number, number>;
+  /** Modulation matrix routing (source→destination with amount) */
+  matrixRouting?: Array<{ source: string; destination: string; amount: number }>;
+  /** ISO timestamp when saved */
+  savedAt: string;
+  /** e.g. "2 bars, 14 notes, 120 BPM" */
+  sourceDescription?: string;
+  /** Discriminant for type narrowing */
+  isUserPreset: true;
+}
+
 export interface CCParameter {
   cc: number;
   name: string;
@@ -166,7 +180,7 @@ export interface CCParameter {
   defaultValue: number;
   bipolar: boolean;     // true if 64 = center/zero
   channels: "all" | "drum" | "synth" | "dx" | SeqtrackChannel[];
-  category: "sound" | "effect" | "control" | "fm" | "eq";
+  category: "sound" | "effect" | "control" | "fm" | "eq" | "modulation";
 }
 
 export interface TrackSoundState {

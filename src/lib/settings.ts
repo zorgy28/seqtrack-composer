@@ -138,25 +138,29 @@ export interface ProviderConfig {
   modelId?: string;
   apiKey?: string;
   baseUrl?: string;
+  temperature?: number;
 }
 
 export function buildProviderConfig(settings: AppSettings): ProviderConfig {
-  switch (settings.llmProvider) {
-    case "claude":
-      return { provider: "claude", modelId: settings.claudeModel, apiKey: settings.claudeApiKey };
-    case "gemini":
-      return { provider: "gemini", modelId: settings.geminiModel, apiKey: settings.geminiApiKey };
-    case "openrouter":
-      return { provider: "openrouter", modelId: settings.openrouterModel, apiKey: settings.openrouterApiKey };
-    case "lm-studio":
-      return { provider: "lm-studio", modelId: settings.lmStudioModel, baseUrl: settings.lmStudioUrl };
-    case "ollama":
-      return { provider: "ollama", modelId: settings.ollamaModel, baseUrl: settings.ollamaUrl };
-    case "zai":
-      return { provider: "zai", modelId: settings.zaiModel, apiKey: settings.zaiApiKey, baseUrl: settings.zaiUrl || "https://api.z.ai/api/coding/paas/v4" };
-    default:
-      return { provider: "claude", modelId: settings.claudeModel, apiKey: settings.claudeApiKey };
-  }
+  const base = (() => {
+    switch (settings.llmProvider) {
+      case "claude":
+        return { provider: "claude" as const, modelId: settings.claudeModel, apiKey: settings.claudeApiKey };
+      case "gemini":
+        return { provider: "gemini" as const, modelId: settings.geminiModel, apiKey: settings.geminiApiKey };
+      case "openrouter":
+        return { provider: "openrouter" as const, modelId: settings.openrouterModel, apiKey: settings.openrouterApiKey };
+      case "lm-studio":
+        return { provider: "lm-studio" as const, modelId: settings.lmStudioModel, baseUrl: settings.lmStudioUrl };
+      case "ollama":
+        return { provider: "ollama" as const, modelId: settings.ollamaModel, baseUrl: settings.ollamaUrl };
+      case "zai":
+        return { provider: "zai" as const, modelId: settings.zaiModel, apiKey: settings.zaiApiKey, baseUrl: settings.zaiUrl || "https://api.z.ai/api/coding/paas/v4" };
+      default:
+        return { provider: "claude" as const, modelId: settings.claudeModel, apiKey: settings.claudeApiKey };
+    }
+  })();
+  return { ...base, temperature: settings.temperature };
 }
 
 export function buildDoclingConfig(settings: AppSettings): { url: string; apiKey: string } {

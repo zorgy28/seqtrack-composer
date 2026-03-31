@@ -27,9 +27,8 @@ export function listenForSoundChanges(
   const ccHandler = (event: any) => {
     const channel = event.message?.channel ?? event.channel;
     const cc = event.controller?.number ?? 0;
-    // WebMidi.js v3 normalizes values to 0-1 for CC
-    const rawValue = event.rawValue ?? event.value ?? 0;
-    const value = typeof rawValue === "number" && rawValue <= 1 ? Math.round(rawValue * 127) : rawValue;
+    // Prefer rawValue (integer 0-127) over normalized float value (0-1)
+    const value = event.rawValue ?? Math.round((event.value ?? 0) * 127);
 
     if (!bankState[channel]) bankState[channel] = { msb: 0, lsb: 0 };
 
@@ -43,8 +42,8 @@ export function listenForSoundChanges(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pcHandler = (event: any) => {
     const channel = event.message?.channel ?? event.channel;
-    const rawValue = event.rawValue ?? event.value ?? 0;
-    const pc = typeof rawValue === "number" && rawValue <= 1 ? Math.round(rawValue * 127) : rawValue;
+    // Prefer rawValue (integer 0-127) over normalized float value (0-1)
+    const pc = event.rawValue ?? Math.round((event.value ?? 0) * 127);
 
     const msb = bankState[channel]?.msb ?? 0;
     const lsb = bankState[channel]?.lsb ?? 0;

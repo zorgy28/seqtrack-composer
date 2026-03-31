@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { getSettings } from "@/lib/settings";
 import { RefreshCw } from "lucide-react";
@@ -49,6 +49,25 @@ const OR_POPULAR = [
   "mistralai/mistral-large",
 ];
 
+const LOCAL_PROVIDERS: LLMProvider[] = ["lm-studio", "ollama", "zai"];
+
+function isLocalProvider(p: LLMProvider): boolean {
+  return LOCAL_PROVIDERS.includes(p);
+}
+
+// ── Per-provider local state ────────────────────────────────────
+
+interface LocalProviderState {
+  models: { id: string }[];
+  reachable: boolean | null; // null = loading
+}
+
+const INITIAL_LOCAL_STATE: Record<string, LocalProviderState> = {
+  "lm-studio": { models: [], reachable: null },
+  "ollama":    { models: [], reachable: null },
+  "zai":       { models: [], reachable: null },
+};
+
 // ── Helpers ──────────────────────────────────────────────────
 
 function shortLabel(provider: LLMProvider, modelId: string): string {
@@ -56,6 +75,10 @@ function shortLabel(provider: LLMProvider, modelId: string): string {
     return CLAUDE_MODELS.find((m) => m.id === modelId)?.label ?? modelId.replace("claude-", "");
   if (provider === "gemini")
     return GEMINI_MODELS.find((m) => m.id === modelId)?.label ?? modelId.replace("gemini-", "");
+  if (provider === "zai")
+    return modelId || "glm-4.7";
+  if (provider === "ollama")
+    return modelId ? modelId.replace(/:latest$/, "") : "—";
   return modelId.includes("/") ? modelId.split("/")[1] : modelId || "—";
 }
 
@@ -200,34 +223,70 @@ interface ModelSelectorProps {
 }
 
 export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps) {
-  const [lmModels, setLmModels] = useState<{ id: string }[]>([]);
-  const [lmReachable, setLmReachable] = useState<boolean | null>(null); // null = loading
+  const [localState, setLocalState] = useState<Record<string, LocalProviderState>>(
+    () => ({ ...INITIAL_LOCAL_STATE }),
+  );
   const settings = getSettings();
 
-  useEffect(() => {
-    let cancelled = false;
-    const isOllama = value.provider === "ollama";
-    const isZai = value.provider === "zai";
-    const url = isZai
-      ? (settings.zaiUrl || "https://api.z.ai/api/coding/paas/v4")
-      : isOllama
-        ? (settings.ollamaUrl || "http://localhost:11434")
-        : (settings.lmStudioUrl || "http://localhost:1234/v1");
-    const type = isZai ? "zai" : isOllama ? "ollama" : "lmstudio";
-    const zaiApiKey = settings.zaiApiKey || "";
-    const apiKeyParam = isZai && zaiApiKey ? `&apiKey=${encodeURIComponent(zaiApiKey)}` : "";
-    fetch(`/api/models?url=${encodeURIComponent(url)}&type=${type}${apiKeyParam}`)
-      .then((r) => r.ok ? r.json() : { models: [], reachable: false })
-      .then((d) => {
-        if (!cancelled) {
-          setLmModels(d.models ?? []);
-          setLmReachable(d.reachable ?? false);
-        }
+  // Fetch models for all local providers in parallel on mount and when URLs/keys change
+  const fetchLocalProviders = useCallback(() => {
+    const configs: Array<{ key: string; url: string; type: string; apiKey?: string }> = [
+      { key: "lm-studio", url: settings.lmStudioUrl || "http://localhost:1234/v1", type: "lmstudio" },
+      { key: "ollama",    url: settings.ollamaUrl || "http://localhost:11434",       type: "ollama" },
+      { key: "zai",       url: settings.zaiUrl || "https://api.z.ai/api/coding/paas/v4", type: "zai", apiKey: settings.zaiApiKey },
+    ];
+
+    for (const cfg of configs) {
+      fetch(`/api/models?url=${encodeURIComponent(cfg.url)}&type=${cfg.type}`, {
+        headers: cfg.apiKey ? { "x-api-key": cfg.apiKey } : {},
       })
-      .catch(() => { if (!cancelled) setLmReachable(false); });
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.lmStudioUrl, settings.ollamaUrl, settings.zaiApiKey, settings.zaiUrl, value.provider]);
+        .then((r) => r.ok ? r.json() : { models: [], reachable: false })
+        .then((d) => {
+          setLocalState((prev) => ({
+            ...prev,
+            [cfg.key]: { models: d.models ?? [], reachable: d.reachable ?? false },
+          }));
+        })
+        .catch(() => {
+          setLocalState((prev) => ({
+            ...prev,
+            [cfg.key]: { models: [], reachable: false },
+          }));
+        });
+    }
+  }, [settings.lmStudioUrl, settings.ollamaUrl, settings.zaiUrl, settings.zaiApiKey]);
+
+  useEffect(() => {
+    fetchLocalProviders();
+  }, [fetchLocalProviders]);
+
+  function localSubLabel(p: LLMProvider): string {
+    const state = localState[p];
+    if (!state) return "—";
+    if (state.reachable === null) return "…";
+    if (!state.reachable) return "offline";
+    if (state.models.length === 0) return "no model";
+    // When this is the active provider, show the selected model
+    if (p === value.provider) return shortLabel(p, value.model);
+    // When not active, show stored model or first available
+    if (p === "ollama") {
+      const stored = settings.ollamaModel;
+      return stored ? shortLabel(p, stored) : shortLabel(p, state.models[0]?.id ?? "");
+    }
+    if (p === "zai") {
+      const stored = settings.zaiModel;
+      return stored ? shortLabel(p, stored) : "glm-4.7";
+    }
+    // lm-studio
+    const stored = settings.lmStudioModel;
+    return stored ? shortLabel(p, stored) : shortLabel(p, state.models[0]?.id ?? "");
+  }
+
+  function isLocalDisabled(p: LLMProvider): boolean {
+    const state = localState[p];
+    if (!state) return true;
+    return state.reachable === false || (state.reachable === true && state.models.length === 0);
+  }
 
   function selectProvider(p: LLMProvider) {
     if (p === value.provider) return;
@@ -241,27 +300,44 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
       case "openrouter":
         onChange({ provider: p, model: settings.openrouterModel || "anthropic/claude-sonnet-4.5" });
         break;
-      case "lm-studio":
-        onChange({ provider: p, model: lmModels[0]?.id ?? settings.lmStudioModel ?? "" });
+      case "lm-studio": {
+        const lmState = localState["lm-studio"];
+        onChange({ provider: p, model: lmState.models[0]?.id ?? settings.lmStudioModel ?? "" });
         break;
-      case "ollama":
-        onChange({ provider: p, model: settings.ollamaModel || "" });
+      }
+      case "ollama": {
+        const ollamaState = localState["ollama"];
+        onChange({ provider: p, model: settings.ollamaModel || ollamaState.models[0]?.id || "" });
         break;
-      case "zai":
-        onChange({ provider: p, model: settings.zaiModel || "glm-5" });
+      }
+      case "zai": {
+        const zaiState = localState["zai"];
+        onChange({ provider: p, model: settings.zaiModel || zaiState.models[0]?.id || "glm-4.7" });
         break;
+      }
     }
   }
 
-  function lmSubLabel(): string {
-    if (lmReachable === null) return "…";
-    if (!lmReachable) return "offline";
-    if (lmModels.length === 0) return "no model";
-    return shortLabel("lm-studio", value.model) || "Local GPU";
+  function subLabel(p: LLMProvider): string {
+    if (p === value.provider) {
+      if (isLocalProvider(p)) return localSubLabel(p);
+      return shortLabel(p, value.model);
+    }
+    // Not selected — show static or local sub-label
+    if (p === "claude") return "Sonnet 4.6";
+    if (p === "gemini") return "2.5 Flash";
+    if (isLocalProvider(p)) return localSubLabel(p);
+    // openrouter
+    return settings.openrouterModel.split("/")[1] ?? "model";
   }
 
   const providers: LLMProvider[] = ["claude", "gemini", "openrouter", "lm-studio", "ollama", "zai"];
-  const lmDisabled = lmReachable === false || (lmReachable === true && lmModels.length === 0);
+
+  const selectClass = cn(
+    "h-7 rounded-lg border border-input bg-transparent px-2 text-xs",
+    "focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 outline-none",
+    "dark:bg-input/30",
+  );
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -269,31 +345,29 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
 
       {/* Provider tabs */}
       <div className="flex gap-1">
-        {providers.map((p) => (
-          <button
-            key={p}
-            type="button"
-            disabled={disabled || (p === "lm-studio" && !!lmDisabled)}
-            onClick={() => selectProvider(p)}
-            className={cn(
-              "flex-1 rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors",
-              value.provider === p
-                ? "border-primary bg-primary/10 text-primary"
-                : "border-input text-muted-foreground hover:border-foreground/30 hover:text-foreground",
-              (disabled || (p === "lm-studio" && !!lmDisabled)) && "pointer-events-none opacity-40"
-            )}
-          >
-            <div>{PROVIDER_LABELS[p]}</div>
-            <div className="text-[10px] opacity-60 truncate max-w-[60px]">
-              {p === value.provider
-                ? (p === "lm-studio" ? lmSubLabel() : shortLabel(p, value.model))
-                : p === "claude" ? "Sonnet 4.6"
-                : p === "gemini" ? "2.5 Flash"
-                : p === "lm-studio" ? lmSubLabel()
-                : (settings.openrouterModel.split("/")[1] ?? "model")}
-            </div>
-          </button>
-        ))}
+        {providers.map((p) => {
+          const isDisabled = disabled || (isLocalProvider(p) && isLocalDisabled(p));
+          return (
+            <button
+              key={p}
+              type="button"
+              disabled={isDisabled}
+              onClick={() => selectProvider(p)}
+              className={cn(
+                "flex-1 rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors",
+                value.provider === p
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-input text-muted-foreground hover:border-foreground/30 hover:text-foreground",
+                isDisabled && "pointer-events-none opacity-40"
+              )}
+            >
+              <div>{PROVIDER_LABELS[p]}</div>
+              <div className="text-[10px] opacity-60 truncate max-w-[60px]">
+                {subLabel(p)}
+              </div>
+            </button>
+          );
+        })}
       </div>
 
       {/* ── Claude sub-picker ── */}
@@ -355,35 +429,74 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
       )}
 
       {/* ── LM Studio model select ── */}
-      {value.provider === "lm-studio" && lmModels.length > 0 && (
+      {value.provider === "lm-studio" && localState["lm-studio"].models.length > 0 && (
         <select
           value={value.model}
           onChange={(e) => onChange({ provider: "lm-studio", model: e.target.value })}
           disabled={disabled}
-          className={cn(
-            "h-7 rounded-lg border border-input bg-transparent px-2 text-xs",
-            "focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 outline-none",
-            "dark:bg-input/30",
-            disabled && "pointer-events-none opacity-50"
-          )}
+          className={cn(selectClass, disabled && "pointer-events-none opacity-50")}
         >
-          {lmModels.map((m) => (
+          {localState["lm-studio"].models.map((m) => (
             <option key={m.id} value={m.id}>{m.id}</option>
           ))}
         </select>
       )}
-
-      {/* ── LM Studio reachable but no model ── */}
-      {value.provider === "lm-studio" && lmReachable && lmModels.length === 0 && (
+      {value.provider === "lm-studio" && localState["lm-studio"].reachable === true && localState["lm-studio"].models.length === 0 && (
         <p className="text-[11px] text-amber-500/80">
           LM Studio is running but no model is loaded. Load a model in LM Studio first.
         </p>
       )}
-
-      {/* ── LM Studio offline ── */}
-      {value.provider === "lm-studio" && lmReachable === false && (
+      {value.provider === "lm-studio" && localState["lm-studio"].reachable === false && (
         <p className="text-[11px] text-muted-foreground/60">
           LM Studio not reachable. Check the URL in Settings → AI & Models.
+        </p>
+      )}
+
+      {/* ── Ollama model select ── */}
+      {value.provider === "ollama" && localState["ollama"].models.length > 0 && (
+        <select
+          value={value.model}
+          onChange={(e) => onChange({ provider: "ollama", model: e.target.value })}
+          disabled={disabled}
+          className={cn(selectClass, disabled && "pointer-events-none opacity-50")}
+        >
+          {localState["ollama"].models.map((m) => (
+            <option key={m.id} value={m.id}>{m.id}</option>
+          ))}
+        </select>
+      )}
+      {value.provider === "ollama" && localState["ollama"].reachable === true && localState["ollama"].models.length === 0 && (
+        <p className="text-[11px] text-amber-500/80">
+          Ollama is running but no models are pulled. Run <code className="text-[10px]">ollama pull &lt;model&gt;</code> first.
+        </p>
+      )}
+      {value.provider === "ollama" && localState["ollama"].reachable === false && (
+        <p className="text-[11px] text-muted-foreground/60">
+          Ollama not reachable at {settings.ollamaUrl || "http://localhost:11434"}. Is it running?
+        </p>
+      )}
+
+      {/* ── Z.AI model select ── */}
+      {value.provider === "zai" && localState["zai"].models.length > 0 && (
+        <select
+          value={value.model}
+          onChange={(e) => onChange({ provider: "zai", model: e.target.value })}
+          disabled={disabled}
+          className={cn(selectClass, disabled && "pointer-events-none opacity-50")}
+        >
+          {localState["zai"].models.map((m) => (
+            <option key={m.id} value={m.id}>{m.id}</option>
+          ))}
+        </select>
+      )}
+      {value.provider === "zai" && localState["zai"].reachable === true && localState["zai"].models.length === 0 && (
+        <p className="text-[11px] text-amber-500/80">
+          Z.AI is reachable but returned no models. Check your API key in Settings.
+        </p>
+      )}
+      {value.provider === "zai" && localState["zai"].reachable === false && (
+        <p className="text-[11px] text-muted-foreground/60">
+          Z.AI not reachable. Check your API key and endpoint in Settings → AI & Models.
         </p>
       )}
     </div>

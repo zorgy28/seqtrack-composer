@@ -1,3 +1,7 @@
+// This module handles raw LLM JSON output where shapes are unknown until runtime.
+// The 'any' types in extraction/normalization functions are intentional —
+// Zod schema validation provides the type safety boundary.
+
 import { generateText, Output } from "ai";
 import type { LanguageModel } from "ai";
 import type { ZodType } from "zod";
@@ -13,8 +17,9 @@ export async function generateWithFallback<T>(options: {
   prompt: string;
   supportsStructuredOutput: boolean;
   maxOutputTokens?: number;
+  temperature?: number;
 }): Promise<T> {
-  const { model, schema, system, prompt, supportsStructuredOutput: structured, maxOutputTokens = 16384 } = options;
+  const { model, schema, system, prompt, supportsStructuredOutput: structured, maxOutputTokens = 16384, temperature } = options;
 
   if (structured) {
     // Use native structured output (Claude supports this)
@@ -24,6 +29,7 @@ export async function generateWithFallback<T>(options: {
       system,
       prompt,
       maxOutputTokens,
+      ...(temperature != null && { temperature }),
     });
     if (!output) throw new Error("No output generated");
     return output;
@@ -38,6 +44,7 @@ export async function generateWithFallback<T>(options: {
     system: system + jsonInstruction + thinkingDisable,
     prompt,
     maxOutputTokens,
+    ...(temperature != null && { temperature }),
   });
 
   return extractAndValidateJSON(text, schema);
@@ -48,8 +55,12 @@ export async function generateWithFallback<T>(options: {
  * Tries multiple extraction strategies.
  */
 function extractAndValidateJSON<T>(text: string, schema: ZodType<T>): T {
-  // Strip Qwen3-style <think>...</think> blocks that precede the actual JSON
-  const cleaned = text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+  // Strip reasoning/thinking blocks from various models (Qwen3, DeepSeek R1, etc.)
+  const cleaned = text
+    .replace(/<think>[\s\S]*?<\/think>/g, "")
+    .replace(/<\|thinking\|>[\s\S]*?<\|\/thinking\|>/g, "")
+    .replace(/<reasoning>[\s\S]*?<\/reasoning>/g, "")
+    .trim();
   // Use cleaned text for all extraction strategies
   const effectiveText = cleaned || text;
 
@@ -68,11 +79,20 @@ function extractAndValidateJSON<T>(text: string, schema: ZodType<T>): T {
       if (!match) throw new Error("No code fence found");
       return JSON.parse(match[1]);
     },
-    // Strategy 4: Find first { ... } block (greedy)
+    // Strategy 4: Find first { ... } block with balanced braces
     () => {
       const start = effectiveText.indexOf("{");
-      const end = effectiveText.lastIndexOf("}");
-      if (start === -1 || end === -1 || end <= start) throw new Error("No JSON object found");
+      if (start === -1) throw new Error("No JSON object found");
+      let depth = 0;
+      let end = -1;
+      for (let i = start; i < effectiveText.length; i++) {
+        if (effectiveText[i] === "{") depth++;
+        else if (effectiveText[i] === "}") {
+          depth--;
+          if (depth === 0) { end = i; break; }
+        }
+      }
+      if (end === -1) throw new Error("No balanced JSON object found");
       return JSON.parse(effectiveText.slice(start, end + 1));
     },
   ];

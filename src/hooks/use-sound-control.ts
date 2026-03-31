@@ -3,11 +3,13 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import type { SoundPreset, SeqtrackChannel, TrackSoundState } from "@/lib/midi/types";
 import { useMidiConnection } from "./use-midi-connection";
+import { useDeviceProfile } from "@/providers/device-provider";
 import { listenForSoundChanges } from "@/lib/webmidi/midi-input-listener";
 import { findPresetByBankPC } from "@/lib/midi/sound-library";
 
 export function useSoundControl() {
   const { device } = useMidiConnection();
+  const { profile } = useDeviceProfile();
   const [trackSounds, setTrackSounds] = useState<
     Partial<Record<SeqtrackChannel, TrackSoundState>>
   >({});
@@ -20,7 +22,7 @@ export function useSoundControl() {
       if (!device) return;
 
       const { selectSound } = await import("@/lib/midi/program-change");
-      selectSound(device.id, channel, preset);
+      selectSound(device.id, channel, preset, profile);
 
       // Record what we just sent to suppress incoming echo
       recentlySentRef.current.set(channel, {
@@ -38,7 +40,7 @@ export function useSoundControl() {
         },
       }));
     },
-    [device],
+    [device, profile],
   );
 
   const setCC = useCallback(

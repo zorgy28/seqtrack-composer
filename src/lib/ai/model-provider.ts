@@ -78,20 +78,13 @@ export async function getModelFromConfig(config: ProviderConfig): Promise<Langua
 }
 
 /** Whether the given provider natively supports Zod structured output */
-export function supportsStructuredOutput(provider?: string): boolean {
+export function supportsStructuredOutput(provider?: string, modelId?: string): boolean {
   if (!provider) return true;
-  return provider === "claude" || provider === "gemini";
+  if (provider === "claude" || provider === "gemini") return true;
+  // OpenRouter proxying Claude/Gemini models supports structured output
+  if (provider === "openrouter" && modelId) {
+    return modelId.startsWith("anthropic/") || modelId.startsWith("google/");
+  }
+  return false;
 }
 
-/**
- * Get recommended inference parameters for local LM Studio models.
- * These optimize for structured JSON output quality and speed.
- */
-export function getLMStudioInferenceParams(): Record<string, unknown> {
-  return {
-    temperature: 0.3,
-    max_tokens: 8192,
-    top_p: 0.9,
-    repetition_penalty: 1.05,
-  };
-}

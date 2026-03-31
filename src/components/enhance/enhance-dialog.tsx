@@ -33,7 +33,7 @@ const SEQTRAK_CH_TO_KO2_NOTE: Record<number, number> = {
 
 // ── Constants ────────────────────────────────────────────────────
 
-const QUICK_PRESETS: { label: string; instruction: string; action?: EnhanceAction }[] = [
+const QUICK_PRESETS_SEQTRAK: { label: string; instruction: string; action?: EnhanceAction }[] = [
   { label: "Add swing", instruction: "Add swing to hi-hats and percussion" },
   { label: "Ghost notes", instruction: "Add ghost notes to snare and hats for groove" },
   { label: "More variation", instruction: "Add variation and fills at bar endings" },
@@ -43,10 +43,29 @@ const QUICK_PRESETS: { label: string; instruction: string; action?: EnhanceActio
   { label: "Lo-fi vibes", instruction: "Choose lo-fi hip hop sounds and add swing", action: "all" },
 ];
 
-const ACTIONS: { value: EnhanceAction; label: string; desc: string }[] = [
+const QUICK_PRESETS_MICROFREAK: { label: string; instruction: string; action?: EnhanceAction }[] = [
+  { label: "More variation", instruction: "Add note variation, passing tones, and rhythmic fills" },
+  { label: "Add velocity", instruction: "Add dynamic velocity variation — ghost notes and accents" },
+  { label: "Acid bass sound", instruction: "Design an acid bass: V.Analog oscillator, low cutoff, high resonance, short decay", action: "sound-design" },
+  { label: "Warm pad sound", instruction: "Design a warm pad: WaveTable oscillator, slow attack, full sustain, gentle filter", action: "sound-design" },
+  { label: "Bright lead sound", instruction: "Design a bright lead: SuperWave oscillator, open filter, zero attack, slight glide", action: "sound-design" },
+  { label: "Plucky arp sound", instruction: "Design a plucky arpeggio: KarplusStr oscillator, short decay, zero sustain", action: "sound-design" },
+  { label: "Dark drone sound", instruction: "Design a dark drone: Modal oscillator, very low cutoff, high sustain, slow LFO", action: "sound-design" },
+  { label: "Make brighter", instruction: "Open up the filter cutoff and add resonance for a brighter, more present sound", action: "sound-design" },
+  { label: "Make darker", instruction: "Lower the filter cutoff and reduce resonance for a darker, warmer tone", action: "sound-design" },
+];
+
+const ACTIONS_DEFAULT: { value: EnhanceAction; label: string; desc: string }[] = [
   { value: "enhance", label: "Enhance", desc: "Improve patterns" },
   { value: "sounds", label: "Sounds", desc: "Choose presets" },
   { value: "rearrange", label: "Rearrange", desc: "Optimize mix" },
+  { value: "all", label: "All", desc: "Everything" },
+];
+
+const ACTIONS_SYNTH: { value: EnhanceAction; label: string; desc: string }[] = [
+  { value: "enhance", label: "Enhance", desc: "Improve patterns" },
+  { value: "sound-design", label: "Sound Design", desc: "Design sound via CC" },
+  { value: "sounds", label: "Sounds", desc: "Choose presets" },
   { value: "all", label: "All", desc: "Everything" },
 ];
 
@@ -60,7 +79,7 @@ interface EnhanceDialogProps {
 export function EnhanceDialog({ open, onOpenChange }: EnhanceDialogProps) {
   const { stage, result, error, run, reset } = useEnhance();
   const { project, setProject } = useProject();
-  const { selectPreset } = useSoundControl();
+  const { selectPreset, setCC } = useSoundControl();
 
   const [instruction, setInstruction] = useState("");
   const [action, setAction] = useState<EnhanceAction>("enhance");
@@ -94,6 +113,9 @@ export function EnhanceDialog({ open, onOpenChange }: EnhanceDialogProps) {
   }, [reset]);
 
   const { profile } = useDeviceProfile();
+  const isSynth = profile.architecture === "synth";
+  const ACTIONS = isSynth ? ACTIONS_SYNTH : ACTIONS_DEFAULT;
+  const QUICK_PRESETS = isSynth ? QUICK_PRESETS_MICROFREAK : QUICK_PRESETS_SEQTRAK;
 
   const handleApply = useCallback(() => {
     if (!result) return;
@@ -130,6 +152,15 @@ export function EnhanceDialog({ open, onOpenChange }: EnhanceDialogProps) {
         swing: result.tracks[0]?.patterns[0]?.swing ?? existing.patterns[existing.activePattern].swing,
       };
       updatedTracks[targetCh] = existing;
+
+      // Apply sound design CC values for single-channel devices
+      for (const t of result.tracks) {
+        if (t.soundDesign) {
+          t.soundDesign.forEach((param, i) => {
+            setTimeout(() => void setCC(targetCh, param.cc, param.value), (i + 1) * 15);
+          });
+        }
+      }
     } else {
       // Multi-channel devices (SEQTRAK): apply per-channel as before
       for (const t of result.tracks) {
@@ -145,6 +176,13 @@ export function EnhanceDialog({ open, onOpenChange }: EnhanceDialogProps) {
           const fullPreset = getAllPresets().find((p) => p.id === t.soundPreset!.id);
           if (fullPreset) void selectPreset(ch, fullPreset);
         }
+
+        // Apply sound design CC values
+        if (t.soundDesign) {
+          t.soundDesign.forEach((param, i) => {
+            setTimeout(() => void setCC(ch, param.cc, param.value), (i + 1) * 15);
+          });
+        }
       }
     }
 
@@ -155,7 +193,7 @@ export function EnhanceDialog({ open, onOpenChange }: EnhanceDialogProps) {
     setProject(updatedProject);
     onOpenChange(false);
     reset();
-  }, [result, project, profile, setProject, selectPreset, onOpenChange, reset]);
+  }, [result, project, profile, setProject, selectPreset, setCC, onOpenChange, reset]);
 
   const handleClose = useCallback(
     (nextOpen: boolean) => {
@@ -182,7 +220,7 @@ export function EnhanceDialog({ open, onOpenChange }: EnhanceDialogProps) {
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
-        className="sm:max-w-xl max-h-[90vh] overflow-y-auto"
+        className="sm:max-w-3xl max-h-[90vh] overflow-y-auto"
         showCloseButton={false}
       >
         {/* Header */}

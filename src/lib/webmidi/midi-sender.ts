@@ -321,3 +321,79 @@ export function playPatternLoopedWithCursor(
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// MIDI Transport — Start, Stop, Clock for syncing external sequencers
+// ---------------------------------------------------------------------------
+
+/**
+ * Send MIDI Start (0xFA) — tells external sequencer to start from beat 1.
+ */
+export function sendMidiStart(deviceId: string): void {
+  const output = getOutputPort(deviceId);
+  if (!output) return;
+  output.send([0xfa]);
+}
+
+/**
+ * Send MIDI Stop (0xFC) — tells external sequencer to stop.
+ */
+export function sendMidiStop(deviceId: string): void {
+  const output = getOutputPort(deviceId);
+  if (!output) return;
+  output.send([0xfc]);
+}
+
+/**
+ * Send MIDI Continue (0xFB) — tells external sequencer to resume.
+ */
+export function sendMidiContinue(deviceId: string): void {
+  const output = getOutputPort(deviceId);
+  if (!output) return;
+  output.send([0xfb]);
+}
+
+/**
+ * Start sending MIDI Clock (0xF8) at the given BPM.
+ * MIDI Clock = 24 pulses per quarter note (PPQN).
+ * Returns a stop function.
+ */
+export function startMidiClock(deviceId: string, bpm: number): () => void {
+  const output = getOutputPort(deviceId);
+  if (!output) return () => {};
+
+  const intervalMs = 60000 / (bpm * 24); // ms between clock ticks
+  let stopped = false;
+
+  // Use a Worker for precise timing if available, else setInterval
+  let worker: Worker | null = null;
+  let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+
+  const tick = () => {
+    if (stopped) return;
+    output.send([0xf8]);
+  };
+
+  if (typeof window !== "undefined") {
+    try {
+      worker = new Worker("/timing-worker.js");
+      worker.onmessage = () => tick();
+      worker.postMessage({ type: "start", intervalMs });
+    } catch {
+      worker = null;
+    }
+  }
+
+  if (!worker) {
+    fallbackInterval = setInterval(tick, intervalMs);
+  }
+
+  return () => {
+    stopped = true;
+    if (worker) {
+      worker.postMessage({ type: "stop" });
+      worker.terminate();
+    }
+    if (fallbackInterval !== null) clearInterval(fallbackInterval);
+  };
+}

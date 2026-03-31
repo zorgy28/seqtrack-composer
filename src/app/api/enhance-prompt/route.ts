@@ -8,7 +8,7 @@ import type { ProviderConfig } from "@/lib/settings";
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { providerConfig, prompt, bpm, scaleRoot, scaleName, bars } = body;
+    const { providerConfig, prompt, bpm, scaleRoot, scaleName, bars, deviceId } = body;
 
     if (!prompt || typeof prompt !== "string") {
       return Response.json({ error: "prompt is required" }, { status: 400 });
@@ -16,12 +16,20 @@ export async function POST(request: Request) {
 
     const config: ProviderConfig = providerConfig ?? { provider: "claude" };
 
+    // Lazy-load device profile to avoid pulling the device/sound-library chain at module init
+    let profile;
+    if (deviceId) {
+      const { getDeviceProfile } = await import("@/lib/devices/registry");
+      profile = getDeviceProfile(deviceId);
+    }
+
     const output = await generateWithFallback({
       model: await getModelFromConfig(config),
       schema: enhancedPromptSchema,
-      system: buildEnhancerSystemPrompt(),
-      prompt: buildEnhancerUserPrompt({ prompt, bpm, scaleRoot, scaleName, bars }),
-      supportsStructuredOutput: supportsStructuredOutput(config.provider),
+      system: buildEnhancerSystemPrompt(profile),
+      prompt: buildEnhancerUserPrompt({ prompt, bpm, scaleRoot, scaleName, bars, deviceName: profile?.displayName }),
+      supportsStructuredOutput: supportsStructuredOutput(config.provider, config.modelId),
+      temperature: config.temperature,
     });
 
     return Response.json(output);

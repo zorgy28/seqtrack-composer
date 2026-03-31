@@ -1,6 +1,6 @@
 import MidiWriter from "midi-writer-js";
 import type { Project } from "./types";
-import { ALL_CHANNELS, SEQTRAK_TRACKS, TICKS_PER_STEP, STEPS_PER_BAR } from "./constants";
+import { SEQTRAK_TRACKS, TICKS_PER_STEP, STEPS_PER_BAR } from "./constants";
 
 /**
  * Shared builder — constructs a MidiWriter.Writer from the project.
@@ -12,12 +12,16 @@ function buildMidiWriter(
 ): MidiWriter.Writer {
   const tracks: MidiWriter.Track[] = [];
 
-  for (const ch of ALL_CHANNELS) {
+  // Use the project's actual channels instead of hardcoded SEQTRAK channels
+  const channels = Object.keys(project.tracks).map(Number).sort((a, b) => a - b);
+
+  for (const ch of channels) {
     const track = project.tracks[ch];
+    if (!track) continue;
     const info = SEQTRAK_TRACKS[ch];
     const midiTrack = new MidiWriter.Track();
 
-    midiTrack.addTrackName(info.name);
+    midiTrack.addTrackName(info?.name ?? `Track ${ch}`);
 
     // Set tempo on the first track
     if (ch === 1) {

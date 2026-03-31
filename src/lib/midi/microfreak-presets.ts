@@ -13,13 +13,30 @@
 
 import type { SoundPreset, SoundCategory } from "./types";
 
+// ─── Bank System (4 banks × 128 = 512 slots) ──────────────────
+
+export const MF_TOTAL_SLOTS = 512;
+export const MF_SLOTS_PER_BANK = 128;
+export const MF_BANK_LABELS = ["A", "B", "C", "D"] as const;
+export type MFBank = (typeof MF_BANK_LABELS)[number];
+
+export const MF_BANK_INFO: Record<
+  MFBank,
+  { label: string; startId: number; endId: number; bankMSB: number }
+> = {
+  A: { label: "Factory",   startId: 1,   endId: 128, bankMSB: 0 },
+  B: { label: "User",      startId: 129, endId: 256, bankMSB: 1 },
+  C: { label: "Expansion", startId: 257, endId: 384, bankMSB: 2 },
+  D: { label: "Expansion", startId: 385, endId: 512, bankMSB: 3 },
+};
+
 function mf(id: number, name: string, category: SoundCategory): SoundPreset {
   return {
     id,
     name,
     category,
     engine: "awm2", // using awm2 as generic synth engine for compatibility
-    bankMSB: id <= 128 ? 0 : 1,
+    bankMSB: Math.floor((id - 1) / 128),
     bankLSB: 0,
     programNumber: (id - 1) % 128,
   };

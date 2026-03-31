@@ -18,6 +18,14 @@ export async function POST(request: Request) {
       );
     }
 
+    const validActions = ["enhance", "sounds", "sound-design", "rearrange", "all"];
+    if (!validActions.includes(action)) {
+      return Response.json(
+        { error: `action must be one of: ${validActions.join(", ")}` },
+        { status: 400 },
+      );
+    }
+
     const config: ProviderConfig = providerConfig ?? { provider: "claude" };
 
     // Lazy import device profile to avoid Turbopack init issues
@@ -36,7 +44,8 @@ export async function POST(request: Request) {
       schema: enhanceResultSchema,
       system: buildEnhanceSystemPrompt(action as EnhanceAction, profile),
       prompt: buildEnhanceUserPrompt(project, instruction, action as EnhanceAction),
-      supportsStructuredOutput: supportsStructuredOutput(config.provider),
+      supportsStructuredOutput: supportsStructuredOutput(config.provider, config.modelId),
+      temperature: config.temperature,
     });
 
     return Response.json(output);

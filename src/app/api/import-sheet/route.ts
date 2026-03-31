@@ -701,8 +701,12 @@ function parseNotesFromMarkdown(
 // ---------------------------------------------------------------------------
 
 function extractJSON<T>(text: string): T | null {
-  // Strip thinking tags
-  const cleaned = text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+  // Strip reasoning/thinking blocks from various models (Qwen3, DeepSeek R1, etc.)
+  const cleaned = text
+    .replace(/<think>[\s\S]*?<\/think>/g, "")
+    .replace(/<\|thinking\|>[\s\S]*?<\|\/thinking\|>/g, "")
+    .replace(/<reasoning>[\s\S]*?<\/reasoning>/g, "")
+    .trim();
 
   const strategies: (() => unknown)[] = [
     () => JSON.parse(cleaned),

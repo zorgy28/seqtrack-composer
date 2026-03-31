@@ -1,6 +1,15 @@
 import { buildSoundCatalog } from "./transcription-prompts";
 import { SEQTRAK_CHANNEL_DOCS, STEP_FORMAT_DOCS, NOTE_FORMAT_DOCS } from "./shared-prompt-blocks";
 
+/** Generic note format that doesn't reference SEQTRAK-specific channel rules */
+const GENERIC_NOTE_FORMAT_DOCS = `## Note Format
+Each note has:
+- pitch: MIDI note number 0-127. Use real note numbers for melodic content (e.g., C3=48, C4=60, C5=72).
+- velocity: 1-127. Preserve dynamics — ghost notes ~40-60, normal 80-100, accents 110-127.
+- step: 0-based position in the pattern (quantized to 16th-note grid)
+- duration: length in steps. 1=16th, 2=8th, 4=quarter, 8=half, 16=whole
+- probability: 0-100. Use 100 for confident hits, lower for uncertain notes.`;
+
 // Inline type to avoid circular dependency chain through @/lib/devices/types → @/lib/midi/types
 interface DeviceProfileForPrompts {
   id: string;
@@ -181,7 +190,7 @@ ${NOTE_FORMAT_DOCS}
 
 ## Output Format
 Return a JSON object with:
-- tracks: map of channel number -> { patterns: [{ name, bars, notes: [...], swing }] }
+- tracks: array of { channel, patterns: [{ name, bars, notes: [...], swing }], soundPreset?, soundDesign?, reason? }
 - bpm: suggested BPM (if not specified by user)
 - description: what you generated
 - suggestions: 2-3 follow-up ideas
@@ -218,7 +227,9 @@ function buildDeviceSpecificPrompt(profile: DeviceProfileForPrompts): string {
   parts.push("");
   parts.push(STEP_FORMAT_DOCS);
   parts.push("");
-  parts.push(NOTE_FORMAT_DOCS);
+  // Use generic note format for non-SEQTRAK devices to avoid
+  // "ch 1-7 = drum pitch 60" confusion
+  parts.push(GENERIC_NOTE_FORMAT_DOCS);
 
   if (profile.prompts.genreInstructions) {
     parts.push("");
@@ -238,9 +249,13 @@ function buildDeviceSpecificPrompt(profile: DeviceProfileForPrompts): string {
   }
 
   parts.push(`
+## CRITICAL: Fill All Requested Bars
+If the user requests N bars, generate notes that span ALL N bars (steps 0 to N*16-1).
+Do NOT leave bars empty. Every bar should have musical content.
+
 ## Output Format
 Return a JSON object with:
-- tracks: map of channel number -> { patterns: [{ name, bars, notes: [...], swing }] }
+- tracks: array of { channel, patterns: [{ name, bars, notes: [...], swing }], soundPreset?, soundDesign?, reason? }
 - bpm: suggested BPM (if not specified by user)
 - description: what you generated
 - suggestions: 2-3 follow-up ideas

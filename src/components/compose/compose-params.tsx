@@ -9,6 +9,20 @@ import { ModelSelector, type ModelSelection, type LLMProvider } from "./model-se
 
 const BAR_OPTIONS = [1, 2, 4, 8] as const;
 
+const MAX_BARS_BY_DEVICE: Record<string, number> = {
+  seqtrak: 8,
+  microfreak: 4,
+  ko2: 8,
+  generic: 8,
+};
+
+const DEVICE_OPTIONS: Array<{ id: string; label: string }> = [
+  { id: "seqtrak",    label: "SEQTRAK" },
+  { id: "microfreak", label: "MicroFreak" },
+  { id: "ko2",        label: "KO II" },
+  { id: "generic",    label: "Generic" },
+];
+
 // ── Types ────────────────────────────────────────────────────────
 
 interface ComposeParamsProps {
@@ -25,6 +39,8 @@ interface ComposeParamsProps {
   modelProvider: string;
   modelId: string;
   onModelChange: (provider: string, modelId: string) => void;
+  deviceId: string;
+  onDeviceChange: (deviceId: string) => void;
   disabled?: boolean;
 }
 
@@ -54,6 +70,8 @@ export const ComposeParams = memo(function ComposeParams({
   modelProvider,
   modelId,
   onModelChange,
+  deviceId,
+  onDeviceChange,
   disabled = false,
 }: ComposeParamsProps) {
   const selectClass = cn(
@@ -65,29 +83,59 @@ export const ComposeParams = memo(function ComposeParams({
 
   return (
     <div className="flex flex-wrap items-end gap-3">
+      {/* Device */}
+      <div className="flex flex-col gap-1">
+        <label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          Device
+        </label>
+        <div className="flex gap-1">
+          {DEVICE_OPTIONS.map((d) => (
+            <button
+              key={d.id}
+              type="button"
+              disabled={disabled}
+              onClick={() => onDeviceChange(d.id)}
+              className={cn(
+                "h-7 rounded-lg border px-2 text-xs font-medium transition-colors",
+                deviceId === d.id
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-input text-muted-foreground hover:border-foreground/30 hover:text-foreground",
+                disabled && "pointer-events-none opacity-50",
+              )}
+            >
+              {d.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Bars */}
       <div className="flex flex-col gap-1">
         <label className="text-[10px] uppercase tracking-wider text-muted-foreground">
           Bars
         </label>
         <div className="flex gap-1">
-          {BAR_OPTIONS.map((b) => (
+          {BAR_OPTIONS.map((b) => {
+            const maxBars = MAX_BARS_BY_DEVICE[deviceId] ?? 8;
+            const barDisabled = disabled || b > maxBars;
+            return (
             <button
               key={b}
               type="button"
-              disabled={disabled}
+              disabled={barDisabled}
               onClick={() => onBarsChange(b)}
               className={cn(
                 "h-7 w-8 rounded-lg border text-xs font-medium transition-colors",
                 bars === b
                   ? "border-primary bg-primary/10 text-primary"
                   : "border-input text-muted-foreground hover:border-foreground/30 hover:text-foreground",
-                disabled && "pointer-events-none opacity-50",
+                barDisabled && "pointer-events-none opacity-50",
               )}
             >
               {b}
             </button>
-          ))}
+            );
+          })}
         </div>
       </div>
 

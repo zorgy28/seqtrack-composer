@@ -74,7 +74,8 @@ export async function POST(request: Request) {
           bars: bars ?? 4,
           midiAnalysis,
         }),
-        supportsStructuredOutput: supportsStructuredOutput(config.provider),
+        supportsStructuredOutput: supportsStructuredOutput(config.provider, config.modelId),
+        temperature: config.temperature,
       });
 
       return Response.json(output);

@@ -95,6 +95,7 @@ export function createProjectStore(initialProject?: Project) {
     updatePattern: (channel: SeqtrackChannel, patternIndex: number, pattern: Pattern) => {
       set((state) => {
         const prev = state.project;
+        if (!prev.tracks[channel]) return state;
         const track = { ...prev.tracks[channel] };
         const patterns = [...track.patterns];
         patterns[patternIndex] = pattern;
