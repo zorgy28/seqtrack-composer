@@ -26,6 +26,7 @@ export function useAsyncOperation<T>(): UseAsyncOperationReturn<T> {
       setResultState(data);
       setStage("preview");
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       setError(err instanceof Error ? err.message : "Unknown error");
       setStage("error");
     }

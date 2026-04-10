@@ -13,15 +13,21 @@ type ProfileLike = {
 // ---- Dynamic sound catalog builder ----------------------------------
 
 let _cachedSoundCatalog: string | null = null;
+const _deviceCatalogCache = new Map<string, string>();
 
 /**
  * Build a sound preset catalog for AI prompts.
  * When a profile is provided, uses that device's preset library.
  */
 export function buildSoundCatalog(profile?: ProfileLike): string {
-  // For non-SEQTRAK devices, build device-specific catalog (no caching — different per device)
+  // For non-SEQTRAK devices, use per-device cache
   if (profile && profile.id !== "seqtrak" && profile.sounds?.presets?.length) {
-    return buildDeviceSoundCatalog(profile);
+    const deviceId = profile.id ?? "unknown";
+    const cached = _deviceCatalogCache.get(deviceId);
+    if (cached) return cached;
+    const result = buildDeviceSoundCatalog(profile);
+    _deviceCatalogCache.set(deviceId, result);
+    return result;
   }
 
   // SEQTRAK default — cached

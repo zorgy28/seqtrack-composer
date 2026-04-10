@@ -27,10 +27,12 @@ export function selectSound(
   }
 
   // SEQTRAK default: CC0 → CC32 → PC → CC32 (re-send quirk)
+  // Space messages ~10ms apart so the SEQTRAK can process each before the next arrives.
+  // WebMidi.js `time` maps to native MIDIOutput.send(data, timestamp) — ~1ms precision.
   output.sendControlChange(0, preset.bankMSB, { channels: channel });
-  output.sendControlChange(32, preset.bankLSB, { channels: channel });
-  output.sendProgramChange(preset.programNumber, { channels: channel });
-  output.sendControlChange(32, preset.bankLSB, { channels: channel });
+  output.sendControlChange(32, preset.bankLSB, { channels: channel, time: "+5" });
+  output.sendProgramChange(preset.programNumber, { channels: channel, time: "+10" });
+  output.sendControlChange(32, preset.bankLSB, { channels: channel, time: "+20" });
 }
 
 /**
@@ -45,7 +47,7 @@ export function selectProject(
   if (!output) return;
 
   output.sendControlChange(0, 64, { channels: 1 });
-  output.sendControlChange(32, 0, { channels: 1 });
-  output.sendProgramChange(projectNumber, { channels: 1 });
-  output.sendControlChange(32, 0, { channels: 1 });
+  output.sendControlChange(32, 0, { channels: 1, time: "+5" });
+  output.sendProgramChange(projectNumber, { channels: 1, time: "+10" });
+  output.sendControlChange(32, 0, { channels: 1, time: "+20" });
 }

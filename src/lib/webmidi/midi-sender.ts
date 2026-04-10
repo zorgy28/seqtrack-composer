@@ -25,8 +25,15 @@ export function sendNote(
   });
 }
 
+// ── CC throttle (leading + trailing, 40ms window per channel-CC) ──────────
+// Leading edge: instant response on first touch (critical for musical feel).
+// Trailing edge: final value always arrives (user's release position must reach device).
+// Chrome silently drops MIDI messages on buffer overrun (WebAudio Issue #158).
+const CC_THROTTLE_MS = 40;
+const ccThrottleMap = new Map<string, { timer: ReturnType<typeof setTimeout>; lastSent: number }>();
+
 /**
- * Send a CC message to the device.
+ * Send a CC message to the device (throttled: leading + trailing, 40ms window).
  */
 export function sendCC(
   deviceId: string,
@@ -37,7 +44,25 @@ export function sendCC(
   const output = getOutputPort(deviceId);
   if (!output) return;
 
-  output.sendControlChange(cc, value, { channels: channel });
+  const key = `${channel}-${cc}`;
+  const entry = ccThrottleMap.get(key);
+  const now = Date.now();
+
+  if (!entry || now - entry.lastSent >= CC_THROTTLE_MS) {
+    // Leading edge: send immediately
+    output.sendControlChange(cc, value, { channels: channel });
+    if (entry?.timer) clearTimeout(entry.timer);
+    ccThrottleMap.set(key, { timer: undefined as unknown as ReturnType<typeof setTimeout>, lastSent: now });
+  } else {
+    // Intermediate: schedule trailing edge to send final value
+    if (entry.timer) clearTimeout(entry.timer);
+    const remaining = CC_THROTTLE_MS - (now - entry.lastSent);
+    entry.timer = setTimeout(() => {
+      output.sendControlChange(cc, value, { channels: channel });
+      const te = ccThrottleMap.get(key);
+      if (te) te.lastSent = Date.now();
+    }, remaining);
+  }
 }
 
 /**
@@ -293,9 +318,21 @@ export function playPatternLoopedWithCursor(
   // Fire initial step.
   onStep(0);
 
-  // Request Wake Lock to prevent OS suspension during playback.
+  // Prevent OS suspension during playback.
+  // In Electron: use powerSaveBlocker (more reliable, works with screen off).
+  // In browser: fall back to Screen Wake Lock API.
   let wakeLock: WakeLockSentinel | null = null;
-  if ("wakeLock" in navigator) {
+  let powerSaveId: number | null = null;
+  const electronAPI = (window as unknown as Record<string, unknown>).electronAPI as
+    | { startPowerSave?: () => Promise<number>; stopPowerSave?: (id: number) => Promise<void> }
+    | undefined;
+
+  if (electronAPI?.startPowerSave) {
+    electronAPI.startPowerSave().then(
+      (id) => { if (!cancelled) powerSaveId = id; else electronAPI.stopPowerSave?.(id); },
+      () => {},
+    );
+  } else if ("wakeLock" in navigator) {
     navigator.wakeLock.request("screen").then(
       (wl) => { if (!cancelled) wakeLock = wl; else wl.release(); },
       () => {},
@@ -311,6 +348,7 @@ export function playPatternLoopedWithCursor(
         worker.terminate();
       }
       if (fallbackInterval !== null) clearInterval(fallbackInterval);
+      if (powerSaveId !== null) electronAPI?.stopPowerSave?.(powerSaveId);
       wakeLock?.release();
       sendAllNotesOff(deviceId);
     },

@@ -9,4 +9,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
   readPrefs: () => ipcRenderer.invoke("read-prefs"),
   writePrefs: (data) => ipcRenderer.invoke("write-prefs", data),
+  /** Power save blocker for MIDI playback (prevents CPU suspension) */
+  startPowerSave: () => ipcRenderer.invoke("power-save-start"),
+  stopPowerSave: (id) => ipcRenderer.invoke("power-save-stop", id),
 });

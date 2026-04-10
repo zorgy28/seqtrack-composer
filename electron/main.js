@@ -1,4 +1,4 @@
-const { app, BrowserWindow, session, shell, Menu, ipcMain } = require("electron");
+const { app, BrowserWindow, session, shell, Menu, ipcMain, powerSaveBlocker } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
@@ -246,6 +246,21 @@ ipcMain.handle("write-prefs", async (_event, data) => {
   } catch (err) {
     console.error("[prefs] Failed to write preferences:", err);
     return false;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// IPC: Power save blocker for MIDI playback
+// Uses Electron's powerSaveBlocker instead of Screen Wake Lock API — more
+// reliable, prevents CPU suspension even when screen is off.
+// ---------------------------------------------------------------------------
+ipcMain.handle("power-save-start", () => {
+  return powerSaveBlocker.start("prevent-app-suspension");
+});
+
+ipcMain.handle("power-save-stop", (_event, id) => {
+  if (powerSaveBlocker.isStarted(id)) {
+    powerSaveBlocker.stop(id);
   }
 });
 

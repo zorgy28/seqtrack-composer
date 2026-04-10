@@ -43,9 +43,9 @@ export default function EditorPage() {
   const [importOpen, setImportOpen] = useState(false);
   const showGenrePresets = profile.id === "seqtrak"; // genre presets are SEQTRAK-specific (11-channel patterns)
 
-  const handleApplyPreset = useCallback((style: FullStyle) => {
+  const handleApplyPreset = useCallback(async (style: FullStyle) => {
     const info = STYLE_INFO[style];
-    const updated = applyFullPresetToProject(project, style, 1);
+    const updated = await applyFullPresetToProject(project, style, 1);
     setProject({ ...updated, bpm: info.bpm });
   }, [project, setProject]);
 

@@ -24,13 +24,14 @@ export function useSoundControl() {
       const { selectSound } = await import("@/lib/midi/program-change");
       selectSound(device.id, channel, preset, profile);
 
-      // Record what we just sent to suppress incoming echo
+      // Record what we just sent to suppress incoming echo, then auto-cleanup
       recentlySentRef.current.set(channel, {
         msb: preset.bankMSB,
         lsb: preset.bankLSB,
         pc: preset.programNumber,
         time: Date.now(),
       });
+      setTimeout(() => recentlySentRef.current.delete(channel), 300);
 
       setTrackSounds((prev) => ({
         ...prev,
@@ -84,7 +85,7 @@ export function useSoundControl() {
     const cleanup = listenForSoundChanges(device.id, (channel, msb, lsb, pc) => {
       // Check if this is an echo of something we just sent
       const sent = recentlySentRef.current.get(channel);
-      if (sent && sent.msb === msb && sent.lsb === lsb && sent.pc === pc && Date.now() - sent.time < 500) {
+      if (sent && sent.msb === msb && sent.lsb === lsb && sent.pc === pc && Date.now() - sent.time < 200) {
         return; // Ignore echo
       }
 

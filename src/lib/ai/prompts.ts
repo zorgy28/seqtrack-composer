@@ -25,6 +25,7 @@ interface DeviceProfileForPrompts {
   };
 }
 
+// Reset cache when prompts change — dev server restart will clear this
 let _cachedCompositionPrompt: string | null = null;
 
 /**
@@ -176,17 +177,49 @@ ${NOTE_FORMAT_DOCS}
 - Chords (Ch10): Hammond organ, sustained chords, rhythmic comping. Suggest "Rock Organ" or "FM Organ"
 - Progressions: I-IV-V-IV, I-V-vi-IV, I-bVII-IV
 
+## CRITICAL: Fill All Bars With Notes
+- If the user requests N bars, you MUST generate notes spanning ALL N bars (steps 0 to N×16-1).
+- Do NOT leave bars empty. Every bar should have musical content on every active track.
+- A 2-bar kick pattern should have AT LEAST 8 notes (4 per bar). A 4-bar pattern needs at least 16.
+- Hi-hat patterns: 16th notes = 16 notes per bar, 8th notes = 8 per bar. FILL THEM.
+- Bass/melody: at least 4-8 notes per bar. Walking bass = 16 notes per bar (quarter notes × 4 bars).
+- Do NOT generate only 2-3 notes per track — that is far too sparse. Real music has dense, repeating patterns.
+
+## CRITICAL: Seamless Loop Design
+These patterns will LOOP — the last step connects back to step 0. Design for seamless repetition:
+- Do NOT place a note on the very last step AND step 0 with the same pitch if they would collide (creates a double-trigger on loop).
+- Drum grooves should feel continuous when the last bar wraps to the first bar.
+- Bass/melody: the last note's duration must NOT extend past the pattern length. If the pattern has N bars (N×16 steps), no note at step S should have duration that makes S+duration > N×16.
+- Ensure rhythmic continuity: the groove at the END of the pattern should flow naturally into the groove at the START.
+- For hi-hats and rides: maintain consistent spacing across the loop boundary (e.g., if hats are on every 8th note, the gap between the last hat and step 0 should also be an 8th note).
+- For melodic lines: the last bar can resolve to the root/tonic to create a satisfying loop point, or use a leading tone to create tension that resolves at step 0.
+
+## Note Density Guide (minimum notes per bar)
+| Track Type | Sparse | Normal | Dense |
+|------------|--------|--------|-------|
+| Kick       | 2      | 4      | 8     |
+| Snare/Clap | 1      | 2      | 4     |
+| Hi-hat     | 4      | 8      | 16    |
+| Perc       | 2      | 4      | 8     |
+| Bass       | 4      | 8      | 16    |
+| Melody     | 4      | 8      | 12    |
+| Chords/Pad | 2      | 4      | 8     |
+
+For a typical 2-bar pattern, aim for "Normal" density × 2 bars. For example:
+- Kick: 8 notes, Snare: 4, Hi-hat: 16, Bass: 16, Melody: 16, Chords: 8 = ~68 total notes across all tracks.
+
 ## Rules
 1. ALWAYS use the correct channel numbers (1-11)
-2. For drum tracks (ch 1-7), pitch should be 60
+2. For drum tracks (ch 1-7), pitch MUST be 60
 3. For melodic tracks (ch 8-11), use notes from the specified scale
-4. Include velocity variation for musicality
+4. Include velocity variation for musicality (ghost notes, accents, dynamics)
 5. Keep patterns musically coherent within the genre
 6. ALWAYS include melodic channels (ch8-11) unless the user explicitly says "drums only"
 7. A complete production needs: drums (ch1-7) + bass (ch8) + melody/lead (ch9) + pads/chords (ch10)
 8. If the user asks for a genre, generate ALL tracks including bass and melody — not just drums
 9. Bass lines go on ch8 (Synth 1), leads on ch9 (Synth 2), pads/chords on ch10 (DX)
 10. NEVER return only drum channels unless the prompt explicitly says "drums only"
+11. Every note MUST have ALL 5 fields: pitch, velocity, step, duration, probability
 
 ## Output Format
 Return a JSON object with:
@@ -252,6 +285,15 @@ function buildDeviceSpecificPrompt(profile: DeviceProfileForPrompts): string {
 ## CRITICAL: Fill All Requested Bars
 If the user requests N bars, generate notes that span ALL N bars (steps 0 to N*16-1).
 Do NOT leave bars empty. Every bar should have musical content.
+Do NOT generate only 2-3 notes per track — that is far too sparse. Aim for at least 4-8 notes per bar per track.
+
+## CRITICAL: Seamless Loop Design
+These patterns will LOOP — the last step connects back to step 0. Design for seamless repetition:
+- Do NOT place a note on the very last step AND step 0 if they would collide (double-trigger on loop).
+- The last note's duration must NOT extend past the pattern length (step + duration ≤ bars × 16).
+- Maintain consistent rhythmic spacing across the loop boundary.
+- Melodic lines: resolve to root/tonic at the end, or use a leading tone for tension that resolves at step 0.
+- Every note MUST have ALL 5 fields: pitch, velocity, step, duration, probability.
 
 ## Output Format
 Return a JSON object with:

@@ -38,7 +38,12 @@ export async function initMidi(): Promise<MidiConnectionState> {
 
   try {
     const { WebMidi } = await import("webmidi");
-    await WebMidi.enable({ sysex: true });
+    await Promise.race([
+      WebMidi.enable({ sysex: true }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("MIDI initialization timed out after 10 seconds")), 10_000),
+      ),
+    ]);
     webmidiInstance = WebMidi;
 
     const outputs = WebMidi.outputs.map((o) => toMidiDevice(o));

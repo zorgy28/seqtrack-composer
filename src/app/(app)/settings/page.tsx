@@ -82,40 +82,174 @@ function FieldLabel({ children, hint }: { children: React.ReactNode; hint?: stri
 // LM Studio Model Selector (fetches available models)
 // ---------------------------------------------------------------------------
 
+type LMModel = {
+  id: string;
+  displayName?: string;
+  params?: string;
+  loaded?: boolean;
+  vision?: boolean;
+  toolUse?: boolean;
+};
+
 function LMStudioModelSelector({
   url,
+  apiKey,
   currentModel,
   onChange,
 }: {
   url: string;
+  apiKey: string;
   currentModel: string;
+  onChange: (model: string) => void;
+}) {
+  const [models, setModels] = useState<LMModel[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [reachable, setReachable] = useState(true);
+
+  const fetchModels = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ url, type: "lmstudio" });
+      const res = await fetch(`/api/models?${params}`, {
+        headers: apiKey ? { "x-api-key": apiKey } : {},
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setModels(data.models ?? []);
+        setReachable(data.reachable !== false);
+      }
+    } catch {
+      setReachable(false);
+    } finally {
+      setLoading(false);
+    }
+  }, [url, apiKey]);
+
+  useEffect(() => {
+    fetchModels();
+  }, [fetchModels]);
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2">
+        <FieldLabel hint="Select from models available in LM Studio (loaded or downloaded).">
+          LM Studio Model
+        </FieldLabel>
+        <button
+          type="button"
+          onClick={fetchModels}
+          disabled={loading}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          title="Refresh model list"
+        >
+          <RefreshCw className={cn("w-3 h-3", loading && "animate-spin")} />
+        </button>
+      </div>
+      {loading ? (
+        <p className="text-xs text-muted-foreground">Loading models...</p>
+      ) : !reachable ? (
+        <>
+          <p className="text-[10px] text-destructive/80">Cannot reach LM Studio at {url}. Make sure it is running and the server is enabled.</p>
+          <input
+            type="text"
+            value={currentModel}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="model-name"
+            className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </>
+      ) : models.length > 0 ? (
+        <div className="flex flex-col gap-1 max-h-64 overflow-y-auto">
+          {models.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => onChange(m.id)}
+              className={cn(
+                "w-full text-left rounded-lg border px-3 py-2 transition-colors",
+                currentModel === m.id
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-input text-muted-foreground hover:border-foreground/30"
+              )}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-medium truncate">{m.displayName || m.id}</span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {m.params && <span className="text-[10px] text-muted-foreground/60">{m.params}</span>}
+                  {m.loaded && <span className="text-[10px] text-green-500">loaded</span>}
+                  {m.vision && <span className="text-[10px] text-blue-400" title="Vision capable">V</span>}
+                  {m.toolUse && <span className="text-[10px] text-amber-400" title="Tool use">T</span>}
+                </div>
+              </div>
+              <span className="text-[10px] text-muted-foreground/50 block truncate">{m.id}</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <>
+          <p className="text-[10px] text-muted-foreground/60">No models found. Load a model in LM Studio and click refresh.</p>
+          <input
+            type="text"
+            value={currentModel}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="model-name"
+            className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Ollama Model Selector (fetches available models)
+// ---------------------------------------------------------------------------
+
+function OllamaModelSelector({
+  url,
+  value,
+  onChange,
+}: {
+  url: string;
+  value: string;
   onChange: (model: string) => void;
 }) {
   const [models, setModels] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [reachable, setReachable] = useState<boolean | null>(null);
+
+  const fetchModels = useCallback(async () => {
+    if (!url) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/models?url=${encodeURIComponent(url)}&type=ollama`);
+      if (res.ok) {
+        const data = await res.json();
+        setModels((data.models ?? []).map((m: { id: string }) => m.id));
+        setReachable(data.reachable ?? false);
+      } else {
+        setReachable(false);
+      }
+    } catch {
+      setReachable(false);
+    } finally {
+      setLoading(false);
+    }
+  }, [url]);
 
   useEffect(() => {
-    let cancelled = false;
-    async function fetchModels() {
-      setLoading(true);
-      try {
-        const res = await fetch("/api/models");
-        if (res.ok) {
-          const data = await res.json();
-          if (!cancelled) setModels((data.models ?? []).map((m: { id: string }) => m.id));
-        }
-      } catch { /* ignore */ }
-      finally { if (!cancelled) setLoading(false); }
-    }
     fetchModels();
-    return () => { cancelled = true; };
-  }, [url]);
+  }, [fetchModels]);
 
   return (
     <div className="space-y-1.5">
-      <FieldLabel hint="Select from models currently loaded in LM Studio. Qwen 2.5/3 72B recommended for best JSON output.">
-        LM Studio Model
-      </FieldLabel>
+      <div className="flex items-center gap-2">
+        <FieldLabel hint="Select from models available in Ollama. Pull models with `ollama pull <model>`.">
+          Ollama Model
+        </FieldLabel>
+        {reachable !== null && (
+          <span className={cn("size-2 rounded-full", reachable ? "bg-green-500" : "bg-red-500")} title={reachable ? "Connected" : "Unreachable"} />
+        )}
+      </div>
       {loading ? (
         <p className="text-xs text-muted-foreground">Loading models...</p>
       ) : models.length > 0 ? (
@@ -126,7 +260,7 @@ function LMStudioModelSelector({
               onClick={() => onChange(m)}
               className={cn(
                 "w-full text-left rounded-lg border px-3 py-1.5 text-xs transition-colors",
-                currentModel === m
+                value === m
                   ? "border-primary bg-primary/10 text-primary"
                   : "border-input text-muted-foreground hover:border-foreground/30"
               )}
@@ -137,15 +271,95 @@ function LMStudioModelSelector({
         </div>
       ) : (
         <>
-          <p className="text-[10px] text-muted-foreground/60">No models found. Make sure LM Studio is running and has models loaded.</p>
+          <p className="text-[10px] text-muted-foreground/60">No models found. Make sure Ollama is running and has models pulled.</p>
           <input
             type="text"
-            value={currentModel}
+            value={value}
             onChange={(e) => onChange(e.target.value)}
             placeholder="model-name"
             className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </>
+      )}
+    </div>
+  );
+}
+
+function ZaiModelSelector({
+  apiKey,
+  url,
+  value,
+  onChange,
+}: {
+  apiKey: string;
+  url: string;
+  value: string;
+  onChange: (model: string) => void;
+}) {
+  const [models, setModels] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [reachable, setReachable] = useState<boolean | null>(null);
+
+  const fetchModels = useCallback(async () => {
+    if (!apiKey) { setReachable(null); setModels([]); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/models?url=${encodeURIComponent(url)}&type=zai&apiKey=${encodeURIComponent(apiKey)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setModels((data.models ?? []).map((m: { id: string }) => m.id));
+        setReachable(data.reachable ?? false);
+      } else {
+        setReachable(false);
+      }
+    } catch {
+      setReachable(false);
+    } finally {
+      setLoading(false);
+    }
+  }, [apiKey, url]);
+
+  useEffect(() => {
+    fetchModels();
+  }, [fetchModels]);
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2">
+        <FieldLabel hint="GLM models from Z.AI. Enter your API key above to see available models.">
+          Z.AI Model
+        </FieldLabel>
+        {reachable !== null && (
+          <span className={cn("size-2 rounded-full", reachable ? "bg-green-500" : "bg-red-500")} title={reachable ? "Connected" : "Unreachable"} />
+        )}
+      </div>
+      {loading ? (
+        <p className="text-xs text-muted-foreground">Loading models...</p>
+      ) : models.length > 0 ? (
+        <div className="flex flex-wrap gap-1">
+          {models.map((m) => (
+            <button
+              key={m}
+              onClick={() => onChange(m)}
+              className={cn(
+                "rounded-lg border px-3 py-1.5 text-xs transition-colors",
+                value === m
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-input text-muted-foreground hover:border-foreground/30"
+              )}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="glm-5"
+          className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+        />
       )}
     </div>
   );
@@ -766,18 +980,30 @@ export default function SettingsPage() {
           {settings.llmProvider === "lm-studio" && (
             <>
               <div className="space-y-1.5">
-                <FieldLabel hint="The OpenAI-compatible API endpoint of your LM Studio server.">LM Studio URL</FieldLabel>
+                <FieldLabel hint="Base URL of your LM Studio server (e.g. http://localhost:1234 or http://192.168.1.x:1234).">LM Studio URL</FieldLabel>
                 <input
                   type="text"
                   value={settings.lmStudioUrl}
                   onChange={(e) => handleChange({ lmStudioUrl: e.target.value })}
-                  placeholder="http://localhost:1234/v1"
+                  placeholder="http://localhost:1234"
+                  className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <FieldLabel hint="Required if authentication is enabled in LM Studio. Leave blank if disabled.">API Key</FieldLabel>
+                <input
+                  type="password"
+                  value={settings.lmStudioApiKey}
+                  onChange={(e) => handleChange({ lmStudioApiKey: e.target.value })}
+                  placeholder="lms-… (leave blank if auth is disabled)"
                   className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 />
               </div>
 
               <LMStudioModelSelector
                 url={settings.lmStudioUrl}
+                apiKey={settings.lmStudioApiKey}
                 currentModel={settings.lmStudioModel}
                 onChange={(model) => handleChange({ lmStudioModel: model })}
               />

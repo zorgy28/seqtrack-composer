@@ -16,7 +16,15 @@ import {
   DEFAULT_BPM,
   STYLE_INFO,
 } from "./constants";
-import { GENRE_PRESETS } from "./genre-presets";
+// Genre presets are lazy-loaded (42 KB) — only needed during preset generation
+let _genrePresets: typeof import("./genre-presets").GENRE_PRESETS | null = null;
+async function getGenrePresets() {
+  if (!_genrePresets) {
+    const mod = await import("./genre-presets");
+    _genrePresets = mod.GENRE_PRESETS;
+  }
+  return _genrePresets;
+}
 
 // ─── Factory Functions ──────────────────────────────────────────
 
@@ -287,11 +295,12 @@ export interface FullPresetResult {
   description: string;
 }
 
-export function generateFullPreset(
+export async function generateFullPreset(
   style: FullStyle,
   barsOverride?: number,
-): FullPresetResult {
-  const config = GENRE_PRESETS[style];
+): Promise<FullPresetResult> {
+  const genrePresets = await getGenrePresets();
+  const config = genrePresets[style];
   const info = STYLE_INFO[style];
   const bars = barsOverride ?? config.bars;
   const totalSteps = bars * STEPS_PER_BAR;
@@ -387,12 +396,12 @@ export function generateFullPreset(
   };
 }
 
-export function applyFullPresetToProject(
+export async function applyFullPresetToProject(
   project: Project,
   style: FullStyle,
   barsOverride?: number,
-): Project {
-  const preset = generateFullPreset(style, barsOverride);
+): Promise<Project> {
+  const preset = await generateFullPreset(style, barsOverride);
   const updatedTracks = { ...project.tracks };
 
   for (const ch of ALL_CHANNELS) {

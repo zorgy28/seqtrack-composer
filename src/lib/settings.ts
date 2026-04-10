@@ -24,6 +24,7 @@ export interface AppSettings {
   openrouterApiKey: string;
   openrouterModel: string;
   lmStudioUrl: string;
+  lmStudioApiKey: string;
   lmStudioModel: string;
   ollamaUrl: string;
   ollamaModel: string;
@@ -61,15 +62,16 @@ export const DEFAULT_SETTINGS: AppSettings = {
   monitorVolume: 80,
   playbackMode: "device",
 
-  llmProvider: "claude",
+  llmProvider: "lm-studio",
   claudeApiKey: "",
   claudeModel: "claude-sonnet-4-6",
   geminiApiKey: "",
   geminiModel: "gemini-2.5-flash",
   openrouterApiKey: "",
   openrouterModel: "anthropic/claude-sonnet-4.5",
-  lmStudioUrl: "http://localhost:1234/v1",
-  lmStudioModel: "minimax/minimax-m2.5",
+  lmStudioUrl: "http://192.168.1.125:1235",
+  lmStudioApiKey: "",
+  lmStudioModel: "google/gemma-3-4b",
   ollamaUrl: "http://localhost:11434",
   ollamaModel: "",
   zaiApiKey: "",
@@ -150,8 +152,11 @@ export function buildProviderConfig(settings: AppSettings): ProviderConfig {
         return { provider: "gemini" as const, modelId: settings.geminiModel, apiKey: settings.geminiApiKey };
       case "openrouter":
         return { provider: "openrouter" as const, modelId: settings.openrouterModel, apiKey: settings.openrouterApiKey };
-      case "lm-studio":
-        return { provider: "lm-studio" as const, modelId: settings.lmStudioModel, baseUrl: settings.lmStudioUrl };
+      case "lm-studio": {
+        // Ensure baseUrl ends with /v1 for OpenAI-compatible endpoint
+        const lmBase = settings.lmStudioUrl.replace(/\/v1\/?$/, "").replace(/\/$/, "");
+        return { provider: "lm-studio" as const, modelId: settings.lmStudioModel, baseUrl: `${lmBase}/v1`, apiKey: settings.lmStudioApiKey };
+      }
       case "ollama":
         return { provider: "ollama" as const, modelId: settings.ollamaModel, baseUrl: settings.ollamaUrl };
       case "zai":

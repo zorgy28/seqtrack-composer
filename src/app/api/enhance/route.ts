@@ -1,4 +1,4 @@
-export const maxDuration = 300; // 5 minutes for local LLM
+export const maxDuration = 600; // 10 minutes for large local LLMs
 
 import { getModelFromConfig, supportsStructuredOutput } from "@/lib/ai/model-provider";
 import { generateWithFallback } from "@/lib/ai/json-fallback";

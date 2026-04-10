@@ -136,6 +136,10 @@ export function TranscribeDialog({ open, onOpenChange }: TranscribeDialogProps) 
       // Prevent closing while processing — user must wait or use X button
       if (!nextOpen && isProcessing) return;
       if (!nextOpen) {
+        cancelPreviewRef.current.forEach((c) => c());
+        cancelPreviewRef.current = [];
+        setPreviewingIndex(null);
+        setCurrentStep(null);
         reset();
       }
       onOpenChange(nextOpen);

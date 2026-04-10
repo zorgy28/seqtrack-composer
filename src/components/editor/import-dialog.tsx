@@ -171,12 +171,13 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
         const { findPresetById } = await import("@/lib/midi/sound-library");
         const { gmDrumKitPresets } = await import("@/lib/import/gm-to-seqtrack");
 
-        // Melodic presets
+        // Melodic presets — 80ms spacing lets SEQTRAK process each Bank Select + PC
         for (const { channel, presetId } of multiPatterns) {
           if (!presetId) continue;
           const preset = findPresetById(presetId);
           if (preset) {
             await selectPreset(channel, preset);
+            await new Promise(r => setTimeout(r, 80));
           }
         }
 
@@ -188,6 +189,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
             const preset = findPresetById(Number(pid));
             if (preset) {
               await selectPreset(Number(ch) as SeqtrackChannel, preset);
+              await new Promise(r => setTimeout(r, 80));
             }
           }
         }
@@ -222,12 +224,13 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
         const { findPresetById } = await import("@/lib/midi/sound-library");
         const { gmDrumKitPresets } = await import("@/lib/import/gm-to-seqtrack");
 
-        // Apply melodic presets (Ch 8-10)
+        // Apply melodic presets (Ch 8-10) — 80ms spacing lets SEQTRAK process each
         for (const { channel, presetId } of patterns) {
           if (!presetId) continue;
           const preset = findPresetById(presetId);
           if (preset) {
             await selectPreset(channel, preset);
+            await new Promise(r => setTimeout(r, 80));
           }
         }
 
@@ -239,6 +242,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
             const preset = findPresetById(Number(pid));
             if (preset) {
               await selectPreset(Number(ch) as SeqtrackChannel, preset);
+              await new Promise(r => setTimeout(r, 80));
             }
           }
         }

@@ -58,6 +58,7 @@ export function useCompose(): UseComposeReturn {
   const { profile } = useDeviceProfile();
   const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory());
   const lastParamsRef = useRef<ComposeParams | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const addToHistory = useCallback((params: ComposeParams, data: CompositionOutput) => {
     setHistory(prev => {
@@ -69,12 +70,16 @@ export function useCompose(): UseComposeReturn {
 
   const generate = useCallback(async (params: ComposeParams) => {
     lastParamsRef.current = params;
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+    const signal = abortRef.current.signal;
 
     await run(async () => {
       const settings = getSettings();
       const res = await fetch("/api/compose", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal,
         body: JSON.stringify({
           prompt: params.prompt,
           bpm: params.bpm,
@@ -102,12 +107,16 @@ export function useCompose(): UseComposeReturn {
     if (!result || !lastParamsRef.current) return;
 
     const params = lastParamsRef.current;
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+    const signal = abortRef.current.signal;
 
     await run(async () => {
       const settings = getSettings();
       const res = await fetch("/api/compose", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal,
         body: JSON.stringify({
           prompt: params.prompt,
           bpm: params.bpm,

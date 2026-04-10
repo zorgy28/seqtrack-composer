@@ -304,6 +304,17 @@ const PianoRollGrid = memo(function PianoRollGrid({
     [scaleNotes],
   );
 
+  // Precompute harmony hints for all step-pitch combos (O(1) lookup in render loop)
+  const harmonyHintMap = useMemo(() => {
+    const map = new Map<string, "root" | "chord" | "scale" | null>();
+    for (const pitch of scaleNotes) {
+      for (let step = 0; step < pattern.bars * 16; step++) {
+        map.set(`${step}-${pitch}`, getHarmonyHint(pitch, ensembleAtStep.get(step)));
+      }
+    }
+    return map;
+  }, [scaleNotes, pattern.bars, ensembleAtStep]);
+
   // Virtual scroll state
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -376,7 +387,7 @@ const PianoRollGrid = memo(function PianoRollGrid({
                 if (note) {
                   tooltip = `${midiToNoteName(pitch)} v${note.velocity}`;
                 } else {
-                  const hint = getHarmonyHint(pitch, ensembleAtStep.get(step));
+                  const hint = harmonyHintMap.get(key) ?? null;
                   const noteName = midiToNoteName(pitch);
                   if (hint === "root") {
                     tooltip = `${noteName} — doubles existing note (unison)`;

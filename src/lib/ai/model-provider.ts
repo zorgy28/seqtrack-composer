@@ -1,11 +1,11 @@
 import type { LanguageModel } from "ai";
 import type { ProviderConfig } from "@/lib/settings";
 
-// Custom fetch with 5-minute timeout for local LLMs (they can be slow)
+// Custom fetch with 10-minute timeout for local LLMs (large models can be very slow)
 const lmStudioFetch: typeof fetch = (url, init) => {
   return fetch(url, {
     ...init,
-    signal: init?.signal ?? AbortSignal.timeout(300_000), // 5 minutes
+    signal: init?.signal ?? AbortSignal.timeout(600_000), // 10 minutes
   });
 };
 
@@ -43,12 +43,56 @@ export async function getModelFromConfig(config: ProviderConfig): Promise<Langua
 
   if (provider === "lm-studio") {
     const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
+    const lmApiKey = config.apiKey || process.env.LM_STUDIO_API_KEY || "";
+    const lmBaseUrl = config.baseUrl || process.env.LM_STUDIO_URL || "http://192.168.1.125:1235/v1";
+    const lmModel = config.modelId || process.env.LM_STUDIO_MODEL || "";
+
+    // Ensure the requested model is loaded in LM Studio before inference.
+    // The OpenAI-compat endpoint uses whatever is loaded — it doesn't auto-load.
+    // Check first to avoid creating duplicate instances (each load creates a new one).
+    if (lmModel) {
+      const nativeBase = lmBaseUrl.replace(/\/v1\/?$/, "");
+      const authHeaders: Record<string, string> = {};
+      if (lmApiKey) authHeaders.Authorization = `Bearer ${lmApiKey}`;
+      try {
+        // Check if model is already loaded via OpenAI-compat endpoint
+        const listRes = await fetch(`${lmBaseUrl}/models`, {
+          headers: authHeaders,
+          signal: AbortSignal.timeout(5000),
+        });
+        const listData = listRes.ok ? await listRes.json() : { data: [] };
+        const loadedIds = (listData.data ?? []).map((m: { id: string }) => m.id);
+        const isLoaded = loadedIds.includes(lmModel);
+
+        if (!isLoaded) {
+          console.log(`[lm-studio] Model ${lmModel} not loaded (loaded: ${loadedIds.join(", ")}), loading...`);
+          const loadRes = await fetch(`${nativeBase}/api/v1/models/load`, {
+            method: "POST",
+            headers: { ...authHeaders, "Content-Type": "application/json" },
+            body: JSON.stringify({ model: lmModel }),
+            signal: AbortSignal.timeout(120_000),
+          });
+          if (loadRes.ok) {
+            console.log(`[lm-studio] Model ${lmModel} loaded successfully`);
+          } else {
+            const err = await loadRes.text().catch(() => "");
+            console.warn(`[lm-studio] Model load failed (${loadRes.status}): ${err.slice(0, 200)}`);
+          }
+        } else {
+          console.log(`[lm-studio] Model ${lmModel} already loaded`);
+        }
+      } catch (e) {
+        console.warn(`[lm-studio] Could not check/load model ${lmModel}:`, e instanceof Error ? e.message : e);
+      }
+    }
+
     const lmstudio = createOpenAICompatible({
       name: "lmstudio",
-      baseURL: config.baseUrl || "http://localhost:1234/v1",
+      baseURL: lmBaseUrl,
+      headers: lmApiKey ? { Authorization: `Bearer ${lmApiKey}` } : {},
       fetch: lmStudioFetch,
     });
-    return lmstudio(config.modelId || "");
+    return lmstudio(lmModel);
   }
 
   if (provider === "ollama") {
