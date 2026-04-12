@@ -5,6 +5,7 @@ import { ChevronUp, ChevronDown } from "lucide-react";
 import { useProject } from "@/providers/project-provider";
 import { useTrack, useUpdatePattern, useSelectedChannel, useProjectMeta, useSetActivePatternAll, useUpdateTrack, useTrackPatternsExcept } from "@/stores/project-store";
 import { useSoundControl } from "@/hooks/use-sound-control";
+import { useTrackSound } from "@/stores/sound-store";
 import { SEQTRAK_TRACKS, STEPS_PER_BAR, DRUM_CHANNELS, SYNTH_CHANNELS, getTrackBgActiveClass, getTrackSolidClass } from "@/lib/midi/constants";
 import { toggleNoteInPattern } from "@/lib/midi/pattern-generators";
 import { getScaleNotes, midiToNoteName } from "@/lib/midi/note-utils";
@@ -83,7 +84,8 @@ const TrackHeader = memo(function TrackHeader({
   const track = useTrack(channel);
   const { selectedChannel, setSelectedChannel } = useSelectedChannel();
   const updateTrack = useUpdateTrack();
-  const { getTrackSound } = useSoundControl();
+  // Narrow subscription: only re-renders when THIS channel's sound changes
+  const trackSound = useTrackSound(channel);
   const { profile } = useDeviceProfile();
   const [pickerOpen, setPickerOpen] = useState(false);
   const nameRef = useRef<HTMLButtonElement>(null);
@@ -95,7 +97,7 @@ const TrackHeader = memo(function TrackHeader({
     : SEQTRAK_TRACKS[channel];
   const dotColor = getTrackSolidClass(channel);
   const trackColor = getTrackBgActiveClass(channel);
-  const currentPreset = getTrackSound(channel).preset;
+  const currentPreset = trackSound.preset;
   const soundDisplayName = useMemo(() => {
     return currentPreset?.name ?? "—";
   }, [currentPreset]);
