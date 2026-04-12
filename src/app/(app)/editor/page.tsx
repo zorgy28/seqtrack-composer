@@ -4,7 +4,6 @@ import { useState, useCallback } from "react";
 import { Sparkles, FileMusic } from "lucide-react";
 import { StepGrid } from "@/components/editor/step-grid";
 import { useProject } from "@/providers/project-provider";
-import { useTransport } from "@/providers/transport-provider";
 import { useDeviceProfile } from "@/providers/device-provider";
 import { useSoundControl } from "@/hooks/use-sound-control";
 import { applyFullPresetToProject, createEmptyProject } from "@/lib/midi/pattern-generators";
@@ -34,11 +33,13 @@ const PRESET_GROUPS: Array<{ label: string; styles: FullStyle[] }> = [
 ];
 
 export default function EditorPage() {
+  // NOTE: top-level subscriptions here re-render the entire page on change.
+  // Keep them MINIMAL — push reactive work down into leaf components:
+  //  - currentStep → consumed inside PlaybackCursor (step-grid.tsx)
+  //  - per-track sound → consumed inside TrackHeader via useTrackSound
+  //  - sound design panel → its own self-subscribed component (SoundDesignPanel)
   const { project, setProject } = useProject();
-  const { currentStep } = useTransport();
   const { profile } = useDeviceProfile();
-  const { selectedChannel } = useSelectedChannel();
-  const { getTrackSound, setCC } = useSoundControl();
   const [enhanceOpen, setEnhanceOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const showGenrePresets = profile.id === "seqtrak"; // genre presets are SEQTRAK-specific (11-channel patterns)
@@ -133,27 +134,38 @@ export default function EditorPage() {
 
       {/* Step Grid */}
       <div className="flex-1 overflow-auto p-3 pb-20">
-        <StepGrid currentStep={currentStep} />
+        <StepGrid />
       </div>
 
       {/* Sound Design Panel — shown for synth devices */}
-      {profile.ui.showSoundDesignPanel && (
-        <div className="border-t border-border bg-card/50">
-          <div className="px-3 py-1.5">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Sound Design — {profile.displayName}
-            </span>
-          </div>
-          <TrackParams
-            channel={selectedChannel}
-            ccValues={getTrackSound(selectedChannel).ccValues}
-            onCCChange={(cc, value) => setCC(selectedChannel, cc, value)}
-          />
-        </div>
-      )}
+      {profile.ui.showSoundDesignPanel && <SoundDesignPanel displayName={profile.displayName} />}
 
       <EnhanceDialog open={enhanceOpen} onOpenChange={setEnhanceOpen} />
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} />
+    </div>
+  );
+}
+
+/**
+ * Self-subscribed sound design panel. Isolating it here means the EditorPage
+ * doesn't need to subscribe to the selected channel / sound control state at
+ * the top level, so track/sound changes don't re-render the whole page.
+ */
+function SoundDesignPanel({ displayName }: { displayName: string }) {
+  const { selectedChannel } = useSelectedChannel();
+  const { getTrackSound, setCC } = useSoundControl();
+  return (
+    <div className="border-t border-border bg-card/50">
+      <div className="px-3 py-1.5">
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          Sound Design — {displayName}
+        </span>
+      </div>
+      <TrackParams
+        channel={selectedChannel}
+        ccValues={getTrackSound(selectedChannel).ccValues}
+        onCCChange={(cc, value) => setCC(selectedChannel, cc, value)}
+      />
     </div>
   );
 }

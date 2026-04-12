@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { SoundPicker } from "./sound-picker";
 import { getPresetsForChannel } from "@/lib/midi/sound-library";
 import { useDeviceProfile } from "@/providers/device-provider";
+import { useTransport } from "@/providers/transport-provider";
 
 // KO II pad labels by MIDI note number
 const KO2_PAD_LABELS: Record<number, string> = {
@@ -644,16 +645,19 @@ const MelodicTrackRow = memo(function MelodicTrackRow({
 });
 
 // ─── PlaybackCursor ────────────────────────────────────────────
-// Isolated component: only re-renders when currentStep changes.
+// Self-subscribed leaf: reads currentStep from the Transport context
+// itself, so the parent StepGrid does NOT re-render on every playback tick.
+// Without this isolation, the parent would reconcile all 11 track rows at
+// 30-60fps during playback even though nothing in the rows has changed.
 // Uses GPU-composited CSS transform instead of per-step class toggling.
 
 const PlaybackCursor = memo(function PlaybackCursor({
-  currentStep,
   totalSteps,
 }: {
-  currentStep: number | null | undefined;
   totalSteps: number;
 }) {
+  const { currentStep } = useTransport();
+
   if (currentStep == null || currentStep < 0) return null;
 
   // percentage offset: each step occupies 1/totalSteps of the grid,
@@ -703,12 +707,10 @@ const BeatNumbersHeader = memo(function BeatNumbersHeader({
 
 // ─── PatternNavigator ─────────────────────────────────────────
 
-const PatternNavigator = memo(function PatternNavigator({
-  project,
-}: {
-  project: { tracks: Record<SeqtrackChannel, { patterns: Pattern[]; activePattern: number }> };
-}) {
+const PatternNavigator = memo(function PatternNavigator() {
   const setActivePatternAll = useSetActivePatternAll();
+  // Self-subscribe so StepGrid doesn't need to pass project as a prop
+  const { project } = useProject();
 
   const maxPatterns = Math.max(
     ...Object.values(project.tracks).map((t) => t?.patterns.length ?? 1),
@@ -759,8 +761,7 @@ const PatternNavigator = memo(function PatternNavigator({
 
 // ─── StepGrid (public export) ──────────────────────────────────
 
-export function StepGrid({ currentStep }: { currentStep?: number | null }) {
-  const { project } = useProject();
+export function StepGrid() {
   const { profile } = useDeviceProfile();
   const drumChannels = profile.drumChannels.length > 0 ? profile.drumChannels : DRUM_CHANNELS;
   const synthChannels = profile.synthChannels.length > 0 ? profile.synthChannels : SYNTH_CHANNELS;
@@ -772,16 +773,18 @@ export function StepGrid({ currentStep }: { currentStep?: number | null }) {
 
   return (
     <div className="space-y-0" style={{ contain: "layout style" }}>
-      {/* Pattern navigator — only visible when multi-pattern */}
-      <PatternNavigator project={project} />
+      {/* Pattern navigator — self-subscribed */}
+      <PatternNavigator />
 
-      {/* Beat numbers header with GPU-composited cursor overlay */}
+      {/* Beat numbers header with GPU-composited cursor overlay.
+          PlaybackCursor subscribes to transport internally, so this outer
+          render does NOT run every playback tick. */}
       <div className="flex items-center gap-0">
         <div className="w-24 shrink-0" />
         <div className="w-6 shrink-0" />
         <div className="w-14 shrink-0" />
         <div className="relative flex gap-px flex-1 pr-2">
-          <PlaybackCursor currentStep={currentStep} totalSteps={totalSteps} />
+          <PlaybackCursor totalSteps={totalSteps} />
           <BeatNumbersHeader totalSteps={totalSteps} />
         </div>
       </div>
