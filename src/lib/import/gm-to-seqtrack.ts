@@ -1,18 +1,37 @@
 import type { SeqtrackChannel } from "@/lib/midi/types";
+import { COMPLETE_PRESETS } from "@/lib/midi/sound-data-complete";
+import { findPresetByBankPC } from "@/lib/midi/sound-library";
 
 type ProfileLike = { synthChannels?: number[] };
 
 /**
- * GM Program Number (0-127) to best SEQTRAK preset ID mapping.
+ * GM Program Number (0-127) to best SEQTRAK preset mapping.
  *
- * Preset IDs reference the SEQTRAK sound library (sound-data-complete.ts).
- * The mapping groups GM families to the closest available SEQTRAK sound.
+ * The mapping is expressed as physical device addresses (bankMSB, bankLSB,
+ * programNumber) derived from the curated library. At runtime we resolve
+ * the address to whichever library is currently active (scanned or curated)
+ * so the correct preset is picked even when the user has scanned their
+ * device and the numeric IDs have been rewritten.
  */
 
-// ---- GM Program → SEQTRAK Preset ID ------------------------------------
+// ---- Internal: curated preset ID → bank/PC address ---------------------
 
-/** Map a GM program number (0-127) to the best matching SEQTRAK preset ID. */
-export function gmProgramToPresetId(program: number): number {
+/** Cache: curated preset ID → device address. Built lazily on first use. */
+let _curatedAddrMap: Map<number, { msb: number; lsb: number; pc: number }> | null = null;
+
+function getCuratedAddr(id: number): { msb: number; lsb: number; pc: number } | null {
+  if (!_curatedAddrMap) {
+    _curatedAddrMap = new Map();
+    for (const p of COMPLETE_PRESETS) {
+      _curatedAddrMap.set(p.id, { msb: p.bankMSB, lsb: p.bankLSB, pc: p.programNumber });
+    }
+  }
+  return _curatedAddrMap.get(id) ?? null;
+}
+
+// ---- GM Program → curated preset ID (same logic as before) ------------
+
+function gmProgramToCuratedId(program: number): number {
   // Specific overrides for programs with close SEQTRAK equivalents
   switch (program) {
     case 33: return 863;  // Electric Bass (Finger) → Finger Bass
@@ -42,6 +61,25 @@ export function gmProgramToPresetId(program: number): number {
   if (program <= 111) return 1643;  // Ethnic → Classical Guitar
   if (program <= 119) return 1775;  // Percussive → Vibraphone
   return 1977;                      // Sound Effects → FM Glass Dream
+}
+
+// ---- Public: GM Program → active-library preset ID ---------------------
+
+/**
+ * Map a GM program number (0-127) to a preset ID in the ACTIVE sound library.
+ *
+ * Uses the curated library to pick a desired bank/PC address, then resolves
+ * that address against whatever library is active (scanned or curated) so
+ * the returned ID is valid for `findPresetById` downstream.
+ */
+export function gmProgramToPresetId(program: number): number {
+  const curatedId = gmProgramToCuratedId(program);
+  const addr = getCuratedAddr(curatedId);
+  if (!addr) return curatedId;
+  // Resolve against the active library — scanned presets have different
+  // numeric IDs even though the bank/PC addresses are identical.
+  const activePreset = findPresetByBankPC(addr.msb, addr.lsb, addr.pc);
+  return activePreset?.id ?? curatedId;
 }
 
 // ---- GM Family → SEQTRAK Channel ---------------------------------------
@@ -80,13 +118,40 @@ export function gmFamilyToChannel(family: string, program: number, profile?: Pro
 
 // ---- GM Drum Kit → SEQTRAK drum preset IDs (Ch 1-7) --------------------
 
+/** Resolve a curated-library drum kit mapping against the active library. */
+function resolveKit(
+  kit: Partial<Record<SeqtrackChannel, number>>,
+): Partial<Record<SeqtrackChannel, number>> {
+  const result: Partial<Record<SeqtrackChannel, number>> = {};
+  for (const [chStr, curatedId] of Object.entries(kit)) {
+    const ch = Number(chStr) as SeqtrackChannel;
+    if (curatedId == null) continue;
+    const addr = getCuratedAddr(curatedId);
+    if (!addr) {
+      result[ch] = curatedId;
+      continue;
+    }
+    const active = findPresetByBankPC(addr.msb, addr.lsb, addr.pc);
+    result[ch] = active?.id ?? curatedId;
+  }
+  return result;
+}
+
 /**
  * Map a GM drum kit program number to SEQTRAK drum preset IDs for channels 1-7.
  *
  * Kit numbers follow the GM2 convention:
  *   0 = Standard, 8 = Room, 16 = Power, 24 = Electronic, 25 = TR-808, 32 = Jazz
+ *
+ * Returned IDs are resolved against the active library (scanned or curated).
  */
 export function gmDrumKitPresets(
+  kitProgram: number,
+): Partial<Record<SeqtrackChannel, number>> {
+  return resolveKit(gmDrumKitCurated(kitProgram));
+}
+
+function gmDrumKitCurated(
   kitProgram: number,
 ): Partial<Record<SeqtrackChannel, number>> {
   switch (kitProgram) {
