@@ -6,7 +6,13 @@ import type { SoundPreset, SoundCategory, SoundEngine } from "./types";
 // ─── Known preset names from the original built-in library ──────
 // These are the 99 presets with real names from the hand-curated list.
 
-const KNOWN_PRESETS: SoundPreset[] = [
+/**
+ * Exported so downstream code (GM mapping, etc.) can resolve sound names
+ * to real bank/LSB/PC addresses without going through the generated
+ * COMPLETE_PRESETS (which uses a different ID → bank/PC formula and
+ * therefore doesn't preserve the hand-curated addresses).
+ */
+export const KNOWN_PRESETS: SoundPreset[] = [
   // Drum
   { id: 1, name: "Acoustic Kick", category: "Kick", engine: "drum", bankMSB: 63, bankLSB: 0, programNumber: 0 },
   { id: 2, name: "Tight Kick", category: "Kick", engine: "drum", bankMSB: 63, bankLSB: 0, programNumber: 1 },

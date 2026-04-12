@@ -1,5 +1,5 @@
 import type { SeqtrackChannel } from "@/lib/midi/types";
-import { COMPLETE_PRESETS } from "@/lib/midi/sound-data-complete";
+import { KNOWN_PRESETS } from "@/lib/midi/sound-data-complete";
 import { findPresetByBankPC } from "@/lib/midi/sound-library";
 
 type ProfileLike = { synthChannels?: number[] };
@@ -7,60 +7,65 @@ type ProfileLike = { synthChannels?: number[] };
 /**
  * GM Program Number (0-127) to best SEQTRAK preset mapping.
  *
- * The mapping is expressed as physical device addresses (bankMSB, bankLSB,
- * programNumber) derived from the curated library. At runtime we resolve
- * the address to whichever library is currently active (scanned or curated)
- * so the correct preset is picked even when the user has scanned their
- * device and the numeric IDs have been rewritten.
+ * How it works:
+ * 1. GM program → preset name (e.g. "Sub Bass", "String Ensemble")
+ * 2. Name → real device address (bankMSB/bankLSB/programNumber) via KNOWN_PRESETS
+ * 3. Address → preset in the active sound library (scanned or curated)
+ *
+ * This avoids two bugs that would otherwise trip us up:
+ *  - COMPLETE_PRESETS is generated programmatically; its ID-to-address formula
+ *    does NOT match the hand-curated IDs, so lookups like findPresetById(860)
+ *    return a positional preset named "Bass 5" instead of "Sub Bass".
+ *  - When the user has scanned their device, the scanned library uses
+ *    different numeric IDs. Only bank+LSB+PC addresses are stable across
+ *    libraries — they are the physical hardware slots.
  */
 
-// ---- Internal: curated preset ID → bank/PC address ---------------------
+// ---- Name → device address lookup (built from KNOWN_PRESETS) ------------
 
-/** Cache: curated preset ID → device address. Built lazily on first use. */
-let _curatedAddrMap: Map<number, { msb: number; lsb: number; pc: number }> | null = null;
-
-function getCuratedAddr(id: number): { msb: number; lsb: number; pc: number } | null {
-  if (!_curatedAddrMap) {
-    _curatedAddrMap = new Map();
-    for (const p of COMPLETE_PRESETS) {
-      _curatedAddrMap.set(p.id, { msb: p.bankMSB, lsb: p.bankLSB, pc: p.programNumber });
-    }
-  }
-  return _curatedAddrMap.get(id) ?? null;
+const knownByName = new Map<string, { msb: number; lsb: number; pc: number }>();
+for (const p of KNOWN_PRESETS) {
+  knownByName.set(p.name, { msb: p.bankMSB, lsb: p.bankLSB, pc: p.programNumber });
 }
 
-// ---- GM Program → curated preset ID (same logic as before) ------------
+function addrOf(name: string): { msb: number; lsb: number; pc: number } | null {
+  return knownByName.get(name) ?? null;
+}
 
-function gmProgramToCuratedId(program: number): number {
-  // Specific overrides for programs with close SEQTRAK equivalents
+// ---- GM Program → target preset name ------------------------------------
+
+/** Map a GM program number to the name of a known SEQTRAK preset. */
+function gmProgramToName(program: number): string {
+  // Specific bass overrides
   switch (program) {
-    case 33: return 863;  // Electric Bass (Finger) → Finger Bass
-    case 34: return 865;  // Electric Bass (Pick) → Moog Bass
-    case 35: return 861;  // Fretless Bass → Acid Bass
-    case 36: return 864;  // Slap Bass 1 → Slap Bass
-    case 37: return 864;  // Slap Bass 2 → Slap Bass
-    case 38: return 860;  // Synth Bass 1 → Sub Bass
-    case 39: return 865;  // Synth Bass 2 → Moog Bass
+    case 32: return "Finger Bass";        // Acoustic Bass
+    case 33: return "Finger Bass";        // Electric Bass (Finger)
+    case 34: return "Moog Bass";          // Electric Bass (Pick)
+    case 35: return "Acid Bass";          // Fretless Bass
+    case 36: return "Slap Bass";          // Slap Bass 1
+    case 37: return "Slap Bass";          // Slap Bass 2
+    case 38: return "Sub Bass";           // Synth Bass 1
+    case 39: return "Moog Bass";          // Synth Bass 2
     default: break;
   }
 
   // Family-level mapping by GM program range
-  if (program <= 7) return 1135;    // Piano → E.Piano 1
-  if (program <= 15) return 1775;   // Chromatic Percussion → Vibraphone
-  if (program <= 23) return 1217;   // Organ → Rock Organ
-  if (program <= 31) return 1644;   // Guitar → Electric Clean
-  if (program <= 39) return 860;    // Bass → Sub Bass (fallback)
-  if (program <= 47) return 1441;   // Strings → String Ensemble
-  if (program <= 55) return 1441;   // Ensemble → String Ensemble
-  if (program <= 63) return 1517;   // Brass → Trumpet
-  if (program <= 71) return 1216;   // Reed → Jazzy 1
-  if (program <= 79) return 1216;   // Pipe → Jazzy 1
-  if (program <= 87) return 1290;   // Synth Lead → Warm Pad
-  if (program <= 95) return 1978;   // Synth Pad → FM Strings Pad
-  if (program <= 103) return 1977;  // Synth Effects → FM Glass Dream
-  if (program <= 111) return 1643;  // Ethnic → Classical Guitar
-  if (program <= 119) return 1775;  // Percussive → Vibraphone
-  return 1977;                      // Sound Effects → FM Glass Dream
+  if (program <= 7) return "E.Piano 1";                // Piano
+  if (program <= 15) return "Vibraphone";              // Chromatic Percussion
+  if (program <= 23) return "Rock Organ";              // Organ
+  if (program <= 31) return "Electric Clean";          // Guitar
+  if (program <= 39) return "Sub Bass";                // Bass fallback
+  if (program <= 47) return "String Ensemble";         // Strings
+  if (program <= 55) return "String Ensemble";         // Ensemble
+  if (program <= 63) return "Trumpet";                 // Brass
+  if (program <= 71) return "Jazzy 1";                 // Reed
+  if (program <= 79) return "Jazzy 1";                 // Pipe
+  if (program <= 87) return "Warm Pad";                // Synth Lead
+  if (program <= 95) return "FM Strings Pad";          // Synth Pad
+  if (program <= 103) return "FM Glass Dream";         // Synth Effects
+  if (program <= 111) return "Classical Guitar";       // Ethnic
+  if (program <= 119) return "Vibraphone";             // Percussive
+  return "FM Glass Dream";                             // Sound Effects
 }
 
 // ---- Public: GM Program → active-library preset ID ---------------------
@@ -68,18 +73,17 @@ function gmProgramToCuratedId(program: number): number {
 /**
  * Map a GM program number (0-127) to a preset ID in the ACTIVE sound library.
  *
- * Uses the curated library to pick a desired bank/PC address, then resolves
- * that address against whatever library is active (scanned or curated) so
- * the returned ID is valid for `findPresetById` downstream.
+ * Resolves a preset name via KNOWN_PRESETS (for its real bank/PC address),
+ * then looks up that address in whatever library is active — scanned device
+ * presets or the generated curated library. Returns the ID valid for
+ * `findPresetById` downstream.
  */
 export function gmProgramToPresetId(program: number): number {
-  const curatedId = gmProgramToCuratedId(program);
-  const addr = getCuratedAddr(curatedId);
-  if (!addr) return curatedId;
-  // Resolve against the active library — scanned presets have different
-  // numeric IDs even though the bank/PC addresses are identical.
-  const activePreset = findPresetByBankPC(addr.msb, addr.lsb, addr.pc);
-  return activePreset?.id ?? curatedId;
+  const name = gmProgramToName(program);
+  const addr = addrOf(name);
+  if (!addr) return 1; // safe fallback: first preset in library
+  const active = findPresetByBankPC(addr.msb, addr.lsb, addr.pc);
+  return active?.id ?? 1;
 }
 
 // ---- GM Family → SEQTRAK Channel ---------------------------------------
@@ -118,21 +122,18 @@ export function gmFamilyToChannel(family: string, program: number, profile?: Pro
 
 // ---- GM Drum Kit → SEQTRAK drum preset IDs (Ch 1-7) --------------------
 
-/** Resolve a curated-library drum kit mapping against the active library. */
+/** Resolve a kit of (channel → preset name) pairs into active-library IDs. */
 function resolveKit(
-  kit: Partial<Record<SeqtrackChannel, number>>,
+  kit: Partial<Record<SeqtrackChannel, string>>,
 ): Partial<Record<SeqtrackChannel, number>> {
   const result: Partial<Record<SeqtrackChannel, number>> = {};
-  for (const [chStr, curatedId] of Object.entries(kit)) {
+  for (const [chStr, name] of Object.entries(kit)) {
     const ch = Number(chStr) as SeqtrackChannel;
-    if (curatedId == null) continue;
-    const addr = getCuratedAddr(curatedId);
-    if (!addr) {
-      result[ch] = curatedId;
-      continue;
-    }
+    if (!name) continue;
+    const addr = addrOf(name);
+    if (!addr) continue;
     const active = findPresetByBankPC(addr.msb, addr.lsb, addr.pc);
-    result[ch] = active?.id ?? curatedId;
+    if (active) result[ch] = active.id;
   }
   return result;
 }
@@ -142,70 +143,66 @@ function resolveKit(
  *
  * Kit numbers follow the GM2 convention:
  *   0 = Standard, 8 = Room, 16 = Power, 24 = Electronic, 25 = TR-808, 32 = Jazz
- *
- * Returned IDs are resolved against the active library (scanned or curated).
  */
 export function gmDrumKitPresets(
   kitProgram: number,
 ): Partial<Record<SeqtrackChannel, number>> {
-  return resolveKit(gmDrumKitCurated(kitProgram));
+  return resolveKit(gmDrumKitNames(kitProgram));
 }
 
-function gmDrumKitCurated(
-  kitProgram: number,
-): Partial<Record<SeqtrackChannel, number>> {
+function gmDrumKitNames(kitProgram: number): Partial<Record<SeqtrackChannel, string>> {
   switch (kitProgram) {
     case 8: // Room Kit
       return {
-        1: 3,   // Deep Kick
-        2: 121, // Acoustic Snare
-        3: 241, // 808 Clap
-        4: 361, // Closed Hat Tight
-        5: 441, // Open Hat
-        6: 563, // Ride Cymbal
-        7: 681, // Crash Cymbal
+        1: "Deep Kick",
+        2: "Acoustic Snare",
+        3: "808 Clap",
+        4: "Closed Hat Tight",
+        5: "Open Hat",
+        6: "Ride Cymbal",
+        7: "Crash Cymbal",
       };
     case 16: // Power Kit
       return {
-        1: 5,   // 909 Kick
-        2: 124, // 909 Snare
-        3: 242, // 909 Clap
-        4: 363, // 909 Closed Hat
-        5: 442, // 808 Open Hat
-        6: 563, // Ride Cymbal
-        7: 681, // Crash Cymbal
+        1: "909 Kick",
+        2: "909 Snare",
+        3: "909 Clap",
+        4: "909 Closed Hat",
+        5: "808 Open Hat",
+        6: "Ride Cymbal",
+        7: "Crash Cymbal",
       };
     case 24: // Electronic Kit
     case 25: // TR-808
       return {
-        1: 4,   // 808 Kick
-        2: 125, // Trap Snare
-        3: 241, // 808 Clap
-        4: 362, // 808 Closed Hat
-        5: 442, // 808 Open Hat
-        6: 561, // Shaker
-        7: 681, // Crash Cymbal
+        1: "808 Kick",
+        2: "Trap Snare",
+        3: "808 Clap",
+        4: "808 Closed Hat",
+        5: "808 Open Hat",
+        6: "Shaker",
+        7: "Crash Cymbal",
       };
     case 32: // Jazz Kit
       return {
-        1: 1,   // Acoustic Kick
-        2: 126, // Brush Snare
-        3: 243, // Finger Snap
-        4: 361, // Closed Hat Tight
-        5: 441, // Open Hat
-        6: 563, // Ride Cymbal
-        7: 681, // Crash Cymbal
+        1: "Acoustic Kick",
+        2: "Brush Snare",
+        3: "Finger Snap",
+        4: "Closed Hat Tight",
+        5: "Open Hat",
+        6: "Ride Cymbal",
+        7: "Crash Cymbal",
       };
-    case 0:  // Standard Kit
+    case 0: // Standard Kit
     default:
       return {
-        1: 1,   // Acoustic Kick
-        2: 122, // Tight Snare
-        3: 241, // 808 Clap
-        4: 361, // Closed Hat Tight
-        5: 441, // Open Hat
-        6: 563, // Ride Cymbal
-        7: 681, // Crash Cymbal
+        1: "Acoustic Kick",
+        2: "Tight Snare",
+        3: "808 Clap",
+        4: "Closed Hat Tight",
+        5: "Open Hat",
+        6: "Ride Cymbal",
+        7: "Crash Cymbal",
       };
   }
 }
