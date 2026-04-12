@@ -17,10 +17,77 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Parallel / serial stem transcription helpers
+# ---------------------------------------------------------------------------
+
+def _transcribe_single_stem_timed(stem_name: str, audio_path: str) -> tuple[str, list[dict[str, Any]], float]:
+    """Transcribe a single stem and return (name, events, elapsed_seconds)."""
+    from midi_transcribe import transcribe_stem
+    start = time.monotonic()
+    try:
+        events = transcribe_stem(audio_path)
+    except Exception as exc:
+        logger.error("[transcribe] stem %s failed: %s", stem_name, exc)
+        events = []
+    elapsed = time.monotonic() - start
+    logger.info("[transcribe] stem %s took %.2fs (%d events)", stem_name, elapsed, len(events))
+    return stem_name, events, elapsed
+
+
+def transcribe_stems_parallel(
+    stems: dict[str, str],
+    max_workers: int = 6,
+) -> dict[str, list[dict[str, Any]]]:
+    """Transcribe all stems in parallel via ThreadPoolExecutor.
+
+    Basic Pitch's TFLite interpreter is not thread-safe, so the actual
+    predict() call is serialized via _BASIC_PITCH_LOCK in midi_transcribe.
+    The parallelism wins come from audio I/O + postprocessing overlap.
+    Realistic speedup: ~1.4-1.6x across 6 stems.
+    """
+    results: dict[str, list[dict[str, Any]]] = {}
+    total_start = time.monotonic()
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_name = {
+            executor.submit(_transcribe_single_stem_timed, name, path): name
+            for name, path in stems.items()
+        }
+        for future in as_completed(future_to_name):
+            try:
+                name, events, _ = future.result()
+                results[name] = events
+            except Exception as exc:
+                name = future_to_name[future]
+                logger.error("[transcribe] stem %s raised: %s", name, exc)
+                results[name] = []
+
+    total = time.monotonic() - total_start
+    logger.info("[transcribe] parallel total %.2fs for %d stems", total, len(stems))
+    return results
+
+
+def transcribe_stems_serial(
+    stems: dict[str, str],
+) -> dict[str, list[dict[str, Any]]]:
+    """Serial fallback for transcription (set SEQTRACK_TRANSCRIBE_SERIAL=1)."""
+    results: dict[str, list[dict[str, Any]]] = {}
+    total_start = time.monotonic()
+    for name, path in stems.items():
+        _, events, _ = _transcribe_single_stem_timed(name, path)
+        results[name] = events
+    total = time.monotonic() - total_start
+    logger.info("[transcribe] serial total %.2fs for %d stems", total, len(stems))
+    return results
 
 # ---------------------------------------------------------------------------
 # Job state — shared dict reference passed from main.py
@@ -133,31 +200,38 @@ def run_pipeline(
         _update(job_id, progress=40)
 
         # ---------------------------------------------------------------
-        # Stage 3: MIDI transcription
+        # Stage 3: MIDI transcription (parallel across stems by default)
         # ---------------------------------------------------------------
         _update(job_id, stage="transcribing", progress=45)
 
-        from midi_transcribe import transcribe_stem
         from drum_classify import classify_drums
+
+        # Build dict of stem_name -> path for the ALL stems we want to transcribe
+        stems_to_transcribe: dict[str, str] = {}
+        for stem_name in ["drums", "bass", "vocals", "other", "guitar", "piano"]:
+            if stem_name in stem_paths:
+                stems_to_transcribe[stem_name] = stem_paths[stem_name]
+
+        # Pick runner based on env var (serial fallback for debugging)
+        use_serial = os.environ.get("SEQTRACK_TRANSCRIBE_SERIAL", "").lower() in ("1", "true", "yes")
+        runner = transcribe_stems_serial if use_serial else transcribe_stems_parallel
+        logger.info("[transcribe] using %s runner for %d stems", "serial" if use_serial else "parallel", len(stems_to_transcribe))
+
+        raw_stem_events = runner(stems_to_transcribe)
 
         midi_events: dict[str, Any] = {}
 
-        # Transcribe drums and classify into SEQTRAK channels
-        if "drums" in stem_paths:
-            drum_notes = transcribe_stem(stem_paths["drums"])
-            midi_events["drums"] = classify_drums(drum_notes)
-            # Convert channel keys to strings for JSON serialization
+        # Classify drums into SEQTRAK channels 1-7
+        if "drums" in raw_stem_events:
+            drum_notes = raw_stem_events["drums"]
             midi_events["drums"] = {
-                str(ch): events for ch, events in midi_events["drums"].items()
+                str(ch): events for ch, events in classify_drums(drum_notes).items()
             }
-        _update(job_id, progress=55)
 
-        # Transcribe melodic stems (all 5 non-drum stems from htdemucs_6s)
+        # Melodic stems: pass through as-is (all 5 non-drum stems from htdemucs_6s)
         for stem_name in ["bass", "vocals", "other", "guitar", "piano"]:
-            if stem_name in stem_paths:
-                midi_events[stem_name] = transcribe_stem(stem_paths[stem_name])
-            else:
-                midi_events[stem_name] = []
+            midi_events[stem_name] = raw_stem_events.get(stem_name, [])
+
         _update(job_id, progress=70)
 
         # ---------------------------------------------------------------

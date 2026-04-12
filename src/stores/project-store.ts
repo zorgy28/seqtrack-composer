@@ -1,7 +1,7 @@
 import { createStore, useStore } from "zustand";
 import { useShallow } from "zustand/shallow";
 import { createContext, useContext } from "react";
-import type { Project, SeqtrackChannel, Pattern, Track } from "@/lib/midi/types";
+import type { Project, SeqtrackChannel, Pattern, Track, Note } from "@/lib/midi/types";
 import type { TranscriptionOption } from "@/lib/transcription/types";
 import { createEmptyProject, createTrack } from "@/lib/midi/pattern-generators";
 import {
@@ -20,6 +20,7 @@ export interface ProjectActions {
   setProject: (project: Project) => void;
   setSelectedChannel: (ch: SeqtrackChannel) => void;
   updatePattern: (channel: SeqtrackChannel, patternIndex: number, pattern: Pattern) => void;
+  updateTrack: (channel: SeqtrackChannel, updates: Partial<Track>) => void;
   updateBpm: (bpm: number) => void;
   setActivePatternAll: (index: number) => void;
   loadTranscription: (option: TranscriptionOption) => void;
@@ -100,6 +101,21 @@ export function createProjectStore(initialProject?: Project) {
         const patterns = [...track.patterns];
         patterns[patternIndex] = pattern;
         track.patterns = patterns;
+        const updated: Project = {
+          ...prev,
+          tracks: { ...prev.tracks, [channel]: track },
+          updatedAt: new Date().toISOString(),
+        };
+        autoSave(updated);
+        return { project: updated };
+      });
+    },
+
+    updateTrack: (channel: SeqtrackChannel, updates: Partial<Track>) => {
+      set((state) => {
+        const prev = state.project;
+        if (!prev.tracks[channel]) return state;
+        const track = { ...prev.tracks[channel], ...updates };
         const updated: Project = {
           ...prev,
           tracks: { ...prev.tracks, [channel]: track },
@@ -256,4 +272,44 @@ export function useUpdatePattern() {
 export function useSetActivePatternAll() {
   const store = useProjectStore();
   return useStore(store, (s) => s.setActivePatternAll);
+}
+
+/** Just the updateTrack action — stable reference. */
+export function useUpdateTrack() {
+  const store = useProjectStore();
+  return useStore(store, (s) => s.updateTrack);
+}
+
+/** Just the setProject action — stable reference. */
+export function useSetProject() {
+  const store = useProjectStore();
+  return useStore(store, (s) => s.setProject);
+}
+
+/**
+ * Returns all tracks' active-pattern notes EXCEPT the given channel.
+ * Includes `muted` so consumers can filter out muted tracks.
+ * Shallow-stable: only re-renders when OTHER channels' active patterns or mute state change.
+ */
+export function useTrackPatternsExcept(
+  excludeChannel: SeqtrackChannel,
+): Partial<Record<SeqtrackChannel, { notes: Note[]; muted: boolean }>> {
+  const store = useProjectStore();
+  return useStore(
+    store,
+    useShallow((s) => {
+      const result: Partial<Record<SeqtrackChannel, { notes: Note[]; muted: boolean }>> = {};
+      for (const chStr of Object.keys(s.project.tracks)) {
+        const ch = Number(chStr) as SeqtrackChannel;
+        if (ch === excludeChannel) continue;
+        const track = s.project.tracks[ch];
+        if (!track) continue;
+        const activePattern = track.patterns[track.activePattern];
+        if (activePattern) {
+          result[ch] = { notes: activePattern.notes, muted: track.muted ?? false };
+        }
+      }
+      return result;
+    }),
+  );
 }

@@ -168,6 +168,12 @@ export function useHandTracking(): UseHandTrackingReturn {
   const consecutiveFailuresRef = useRef(0);
   const MAX_CONSECUTIVE_FAILURES = 30; // ~0.5s at 60fps
 
+  // Signature refs: gate React state setters for CC outputs and FPS so the
+  // 30fps loop only re-renders those consumers when values materially change.
+  // Note: `setFrame` is NOT gated because consumers read live axis values.
+  const lastCcSignatureRef = useRef<string>("");
+  const lastFpsStateRef = useRef<number>(-1);
+
   // Cached dynamic module refs — populated once in start(), used every frame
   const mediapipeModRef = useRef<MediaPipeLoaderModule | null>(null);
   const gestureModRef = useRef<GestureExtractorModule | null>(null);
@@ -363,13 +369,33 @@ export function useHandTracking(): UseHandTrackingReturn {
         }
       }
 
-      // ── Throttled React state updates (~30fps) ────────────────
+      // ── Throttled React state updates (~30fps) with selective gating ──
+      // CC outputs and FPS only update on material change. Frame must update
+      // on every tick because consumers (OutputMonitor, MappingPanel) read
+      // live axis values from trackingFrame.hands[i].axes.
       if (now - lastStateUpdateRef.current >= 33) {
         lastStateUpdateRef.current = now;
+
+        // Frame: always update at 30fps so axis readouts stay live
         setFrame(trackingFrame);
-        setCcOutputs(outputs);
-        if (currentFps !== fpsRef.current) {
-          setFps(currentFps);
+
+        // CC outputs: signature-gated to skip re-renders when values are stable
+        let ccSignature = "";
+        for (const o of outputs) {
+          ccSignature += `${o.mapping.channel}-${o.mapping.cc}-${o.ccValue}|`;
+        }
+        if (ccSignature !== lastCcSignatureRef.current) {
+          lastCcSignatureRef.current = ccSignature;
+          setCcOutputs(outputs);
+        }
+
+        // FPS: integer-gated (filter sub-Hz jitter). Also fixes a pre-existing
+        // bug where the comparison was always false because fpsRef.current had
+        // already been assigned to currentFps at line 288.
+        const fpsInt = Math.round(currentFps);
+        if (fpsInt !== lastFpsStateRef.current) {
+          lastFpsStateRef.current = fpsInt;
+          setFps(fpsInt);
         }
       }
 
@@ -432,6 +458,9 @@ export function useHandTracking(): UseHandTrackingReturn {
     frameCountRef.current = 0;
     fpsTimerRef.current = performance.now();
     lastStateUpdateRef.current = 0;
+    // Reset signature gates so next start() emits fresh state
+    lastCcSignatureRef.current = "";
+    lastFpsStateRef.current = -1;
   }, [stopDetectionLoop]);
 
   // ── start() ──────────────────────────────────────────────────

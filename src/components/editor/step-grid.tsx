@@ -3,7 +3,7 @@
 import { useState, useRef, useMemo, useCallback, memo, useEffect } from "react";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import { useProject } from "@/providers/project-provider";
-import { useTrack, useUpdatePattern, useSelectedChannel, useProjectMeta, useSetActivePatternAll } from "@/stores/project-store";
+import { useTrack, useUpdatePattern, useSelectedChannel, useProjectMeta, useSetActivePatternAll, useUpdateTrack, useTrackPatternsExcept } from "@/stores/project-store";
 import { useSoundControl } from "@/hooks/use-sound-control";
 import { SEQTRAK_TRACKS, STEPS_PER_BAR, DRUM_CHANNELS, SYNTH_CHANNELS, getTrackBgActiveClass, getTrackSolidClass } from "@/lib/midi/constants";
 import { toggleNoteInPattern } from "@/lib/midi/pattern-generators";
@@ -82,7 +82,7 @@ const TrackHeader = memo(function TrackHeader({
 }) {
   const track = useTrack(channel);
   const { selectedChannel, setSelectedChannel } = useSelectedChannel();
-  const { setProject, project } = useProject();
+  const updateTrack = useUpdateTrack();
   const { getTrackSound } = useSoundControl();
   const { profile } = useDeviceProfile();
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -101,16 +101,12 @@ const TrackHeader = memo(function TrackHeader({
   }, [currentPreset]);
 
   const toggleMute = useCallback(() => {
-    const updatedTrack = { ...track, muted: !track.muted };
-    const updatedTracks = { ...project.tracks, [channel]: updatedTrack };
-    setProject({ ...project, tracks: updatedTracks });
-  }, [track, project, channel, setProject]);
+    updateTrack(channel, { muted: !track.muted });
+  }, [updateTrack, channel, track.muted]);
 
   const setVolume = useCallback((vol: number) => {
-    const updatedTrack = { ...track, volume: vol };
-    const updatedTracks = { ...project.tracks, [channel]: updatedTrack };
-    setProject({ ...project, tracks: updatedTracks });
-  }, [track, project, channel, setProject]);
+    updateTrack(channel, { volume: vol });
+  }, [updateTrack, channel]);
 
   const handleNameClick = useCallback(() => {
     if (selectedChannel === channel) {
@@ -500,7 +496,7 @@ const MelodicTrackRow = memo(function MelodicTrackRow({
   const updatePattern = useUpdatePattern();
   const { selectedChannel, setSelectedChannel } = useSelectedChannel();
   const meta = useProjectMeta();
-  const { project } = useProject();
+  const otherPatterns = useTrackPatternsExcept(channel);
   const { profile } = useDeviceProfile();
   const profileTrack = profile.tracks.find(t => t.channel === channel);
   const info = profileTrack
@@ -510,22 +506,19 @@ const MelodicTrackRow = memo(function MelodicTrackRow({
   const totalSteps = pattern.bars * STEPS_PER_BAR;
   const colorClass = getTrackBgActiveClass(channel);
 
-  // Build ensemble: what notes are playing on OTHER channels at each step
+  // Build ensemble: notes playing on OTHER channels at each step (shallow-stable via selector)
   const ensembleAtStep = useMemo(() => {
     const map = new Map<number, number[]>();
-    for (const ch of [...DRUM_CHANNELS, ...SYNTH_CHANNELS] as SeqtrackChannel[]) {
-      if (ch === channel) continue; // skip self
-      const t = project.tracks[ch];
-      if (t.muted) continue;
-      const p = t.patterns[t.activePattern];
-      for (const note of p.notes) {
+    for (const entry of Object.values(otherPatterns)) {
+      if (!entry || entry.muted) continue;
+      for (const note of entry.notes) {
         const arr = map.get(note.step) ?? [];
         arr.push(note.pitch);
         map.set(note.step, arr);
       }
     }
     return map;
-  }, [project.tracks, channel]);
+  }, [otherPatterns]);
   const isExpanded = selectedChannel === channel;
 
   const [octaveStart, setOctaveStart] = useState(() => {
