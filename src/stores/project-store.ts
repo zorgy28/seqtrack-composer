@@ -287,26 +287,27 @@ export function useSetProject() {
 }
 
 /**
- * Returns all tracks' active-pattern notes EXCEPT the given channel.
- * Includes `muted` so consumers can filter out muted tracks.
- * Shallow-stable: only re-renders when OTHER channels' active patterns or mute state change.
+ * Returns the active-pattern note arrays for all non-muted tracks EXCEPT the given channel.
+ * Each value is the stable `pattern.notes` reference from the store — so `useShallow`
+ * correctly caches the result and only re-renders when OTHER channels' notes change.
+ * Muted tracks are filtered out inside the selector to avoid extra inner objects.
  */
 export function useTrackPatternsExcept(
   excludeChannel: SeqtrackChannel,
-): Partial<Record<SeqtrackChannel, { notes: Note[]; muted: boolean }>> {
+): Partial<Record<SeqtrackChannel, Note[]>> {
   const store = useProjectStore();
   return useStore(
     store,
     useShallow((s) => {
-      const result: Partial<Record<SeqtrackChannel, { notes: Note[]; muted: boolean }>> = {};
+      const result: Partial<Record<SeqtrackChannel, Note[]>> = {};
       for (const chStr of Object.keys(s.project.tracks)) {
         const ch = Number(chStr) as SeqtrackChannel;
         if (ch === excludeChannel) continue;
         const track = s.project.tracks[ch];
-        if (!track) continue;
+        if (!track || track.muted) continue;
         const activePattern = track.patterns[track.activePattern];
         if (activePattern) {
-          result[ch] = { notes: activePattern.notes, muted: track.muted ?? false };
+          result[ch] = activePattern.notes; // stable reference from the store
         }
       }
       return result;

@@ -506,12 +506,14 @@ const MelodicTrackRow = memo(function MelodicTrackRow({
   const totalSteps = pattern.bars * STEPS_PER_BAR;
   const colorClass = getTrackBgActiveClass(channel);
 
-  // Build ensemble: notes playing on OTHER channels at each step (shallow-stable via selector)
+  // Build ensemble: notes playing on OTHER non-muted channels at each step.
+  // otherPatterns is shallow-stable: values are the raw pattern.notes arrays
+  // from the store, so this only recomputes when OTHER channels' notes change.
   const ensembleAtStep = useMemo(() => {
     const map = new Map<number, number[]>();
-    for (const entry of Object.values(otherPatterns)) {
-      if (!entry || entry.muted) continue;
-      for (const note of entry.notes) {
+    for (const notes of Object.values(otherPatterns)) {
+      if (!notes) continue;
+      for (const note of notes) {
         const arr = map.get(note.step) ?? [];
         arr.push(note.pitch);
         map.set(note.step, arr);
