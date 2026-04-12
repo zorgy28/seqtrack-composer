@@ -97,11 +97,8 @@ const TrackHeader = memo(function TrackHeader({
   const trackColor = getTrackBgActiveClass(channel);
   const currentPreset = getTrackSound(channel).preset;
   const soundDisplayName = useMemo(() => {
-    if (currentPreset) return currentPreset.name;
-    // Show first preset name for this channel as default
-    const presets = getPresetsForChannel(channel);
-    return presets[0]?.name ?? "—";
-  }, [currentPreset, channel]);
+    return currentPreset?.name ?? "—";
+  }, [currentPreset]);
 
   const toggleMute = useCallback(() => {
     const updatedTrack = { ...track, muted: !track.muted };

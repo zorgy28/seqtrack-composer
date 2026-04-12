@@ -31,7 +31,7 @@ export function useSoundControl() {
         pc: preset.programNumber,
         time: Date.now(),
       });
-      setTimeout(() => recentlySentRef.current.delete(channel), 300);
+      setTimeout(() => recentlySentRef.current.delete(channel), 500);
 
       setTrackSounds((prev) => ({
         ...prev,
@@ -86,13 +86,13 @@ export function useSoundControl() {
       // Check if this is an echo of something we just sent
       const sent = recentlySentRef.current.get(channel);
       if (sent && sent.msb === msb && sent.lsb === lsb && sent.pc === pc && Date.now() - sent.time < 200) {
-        return; // Ignore echo
+        console.log(`[sync] Echo suppressed ch${channel} (MSB=${msb} LSB=${lsb} PC=${pc})`);
+        return;
       }
 
       // Look up the preset from our library
       const preset = findPresetByBankPC(msb, lsb, pc);
       if (preset) {
-        // Update state WITHOUT sending back to device
         setTrackSounds((prev) => ({
           ...prev,
           [channel]: {
@@ -101,6 +101,16 @@ export function useSoundControl() {
           },
         }));
         console.log(`[sync] Device changed ch${channel} to: ${preset.name} (MSB=${msb} LSB=${lsb} PC=${pc})`);
+      } else {
+        // Unknown preset — show raw bank/PC so user knows something changed
+        console.warn(`[sync] Unknown preset on ch${channel}: MSB=${msb} LSB=${lsb} PC=${pc}`);
+        setTrackSounds((prev) => ({
+          ...prev,
+          [channel]: {
+            preset: { id: -1, name: `Bank ${msb}-${lsb} PC ${pc}`, category: "SFX", engine: "drum", bankMSB: msb, bankLSB: lsb, programNumber: pc },
+            ccValues: prev[channel]?.ccValues ?? {},
+          },
+        }));
       }
     });
 
