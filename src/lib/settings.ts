@@ -14,6 +14,12 @@ export interface AppSettings {
   autoMonitor: boolean;
   monitorVolume: number; // 0-100
   playbackMode: PlaybackMode;
+  /** Show the waveform visualization in the Audio Monitor panel */
+  showWaveform: boolean;
+  /** Show the spectrum visualization in the Audio Monitor panel */
+  showSpectrum: boolean;
+  /** Show the level meter in the Audio Monitor panel */
+  showLevelMeter: boolean;
 
   // AI & Models
   llmProvider: LlmProvider;
@@ -61,6 +67,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoMonitor: false,
   monitorVolume: 80,
   playbackMode: "device",
+  // Visualizations default OFF for performance — user can opt in via toggles
+  showWaveform: false,
+  showSpectrum: false,
+  showLevelMeter: true,
 
   llmProvider: "lm-studio",
   claudeApiKey: "",

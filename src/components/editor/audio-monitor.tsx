@@ -8,6 +8,9 @@ import {
   ChevronDown,
   Mic,
   MicOff,
+  Activity,
+  BarChart3,
+  SignalHigh,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -20,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAudioMonitor } from "@/hooks/use-audio-monitor";
+import { getSettings, updateSettings } from "@/lib/settings";
 
 interface AudioMonitorProps {
   className?: string;
@@ -344,6 +348,39 @@ export function AudioMonitor({ className }: AudioMonitorProps) {
   const [expanded, setExpanded] = useState(false);
   const [volume, setVolumeState] = useState(100);
 
+  // Visualization toggles — hydrated from settings, persisted on change.
+  // When a toggle flips OFF, the corresponding canvas component unmounts
+  // entirely, which cancels its rAF loop via useEffect cleanup. This is
+  // the fix for the playback lag — those 30fps rAF loops were running
+  // constantly and competing with the MIDI tick handler.
+  const [showWaveform, setShowWaveform] = useState(() => getSettings().showWaveform);
+  const [showSpectrum, setShowSpectrum] = useState(() => getSettings().showSpectrum);
+  const [showLevelMeter, setShowLevelMeter] = useState(() => getSettings().showLevelMeter);
+
+  const toggleWaveform = useCallback(() => {
+    setShowWaveform((v) => {
+      const next = !v;
+      updateSettings({ showWaveform: next });
+      return next;
+    });
+  }, []);
+
+  const toggleSpectrum = useCallback(() => {
+    setShowSpectrum((v) => {
+      const next = !v;
+      updateSettings({ showSpectrum: next });
+      return next;
+    });
+  }, []);
+
+  const toggleLevelMeter = useCallback(() => {
+    setShowLevelMeter((v) => {
+      const next = !v;
+      updateSettings({ showLevelMeter: next });
+      return next;
+    });
+  }, []);
+
   // Auto-start capture + monitoring when expanding (saves 3 clicks)
   const handleExpand = useCallback(async () => {
     setExpanded(true);
@@ -537,6 +574,48 @@ export function AudioMonitor({ className }: AudioMonitorProps) {
           </div>
         )}
 
+        {/* Visualization toggles */}
+        {isCapturing && (
+          <div className="flex items-center gap-0.5 mr-1">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className={cn(
+                "h-6 w-6",
+                showWaveform ? "text-primary" : "text-muted-foreground/40",
+              )}
+              onClick={toggleWaveform}
+              title={showWaveform ? "Hide waveform" : "Show waveform"}
+            >
+              <Activity className="size-3" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className={cn(
+                "h-6 w-6",
+                showSpectrum ? "text-primary" : "text-muted-foreground/40",
+              )}
+              onClick={toggleSpectrum}
+              title={showSpectrum ? "Hide spectrum" : "Show spectrum"}
+            >
+              <BarChart3 className="size-3" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className={cn(
+                "h-6 w-6",
+                showLevelMeter ? "text-primary" : "text-muted-foreground/40",
+              )}
+              onClick={toggleLevelMeter}
+              title={showLevelMeter ? "Hide level meter" : "Show level meter"}
+            >
+              <SignalHigh className="size-3" />
+            </Button>
+          </div>
+        )}
+
         {/* Collapse button */}
         <Button
           variant="ghost"
@@ -569,24 +648,34 @@ export function AudioMonitor({ className }: AudioMonitorProps) {
 
         {isCapturing && (
           <>
-            {/* Waveform */}
-            <div>
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
-                Waveform
-              </span>
-              <WaveformCanvas getAnalyser={getAnalyser} />
-            </div>
+            {/* Waveform — unmounted entirely when disabled, stops rAF loop */}
+            {showWaveform && (
+              <div>
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
+                  Waveform
+                </span>
+                <WaveformCanvas getAnalyser={getAnalyser} />
+              </div>
+            )}
 
-            {/* Spectrum */}
-            <div>
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
-                Spectrum
-              </span>
-              <SpectrumCanvas getAnalyser={getAnalyser} />
-            </div>
+            {/* Spectrum — unmounted entirely when disabled, stops rAF loop */}
+            {showSpectrum && (
+              <div>
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
+                  Spectrum
+                </span>
+                <SpectrumCanvas getAnalyser={getAnalyser} />
+              </div>
+            )}
 
             {/* Level meter */}
-            <LevelMeter level={level} />
+            {showLevelMeter && <LevelMeter level={level} />}
+
+            {!showWaveform && !showSpectrum && !showLevelMeter && (
+              <div className="text-[10px] text-muted-foreground/60 text-center py-2">
+                Visualizations hidden — use toggles in header to show.
+              </div>
+            )}
           </>
         )}
       </div>
