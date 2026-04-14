@@ -259,6 +259,26 @@ export interface PlaybackControl {
   seek: (step: number) => void;
 }
 
+/**
+ * Lookahead MIDI scheduler with browser-level note timing and rAF cursor.
+ *
+ * How it works (Chris Wilson "A Tale of Two Clocks" pattern):
+ * 1. **Scheduler**: Every SCHEDULER_INTERVAL_MS, peek at the next ~LOOKAHEAD_MS
+ *    of upcoming steps and pre-schedule each note via output.playNote with an
+ *    absolute `time` parameter. The browser's MIDI subsystem fires the message
+ *    at the exact wall-clock time regardless of main-thread load. This gives
+ *    rock-solid audio timing and eliminates the jitter the user was hearing.
+ * 2. **Cursor**: A separate requestAnimationFrame loop reads performance.now()
+ *    and computes the current step from elapsed time. It only calls onStep()
+ *    when the integer step changes (still required for song mode wrap detection
+ *    and the position display in the transport bar). The cursor visual itself
+ *    can interpolate smoothly because it's driven by rAF (60fps) instead of
+ *    the 8-16Hz MIDI tick rate.
+ *
+ * This replaces the previous tick-based engine where every 16th-note interval
+ * triggered a main-thread callback that did MIDI sends + React state updates
+ * synchronously. The new design has near-zero per-tick main-thread work.
+ */
 export function playPatternLoopedWithCursor(
   deviceId: string,
   tracks: Array<{ pattern: Pattern; channel: SeqtrackChannel }>,
@@ -272,72 +292,100 @@ export function playPatternLoopedWithCursor(
   const output = getOutputPort(deviceId);
   if (!output) return { cancel: () => {}, seek: () => {} };
 
-  let currentStep = 0;
+  // Lookahead: how far in the future to schedule notes.
+  // Smaller = tighter cancel/state-change response; larger = more jitter immunity.
+  const LOOKAHEAD_MS = 120;
+  // How often the scheduler wakes up to refill the lookahead window.
+  const SCHEDULER_INTERVAL_MS = 25;
+  // Initial offset before the first step fires (small so play feels instant).
+  const START_OFFSET_MS = 30;
+
   let cancelled = false;
+  let stepMs = stepDurationMs(bpm);
 
-  // Track the last interval posted to the worker so we only re-post when BPM changes.
-  let lastIntervalMs = stepDurationMs(bpm);
+  function computeTotalSteps(
+    ts: Array<{ pattern: Pattern }>,
+  ): number {
+    return Math.max(16, ...ts.map((t) => t.pattern.bars * STEPS_PER_BAR));
+  }
 
-  function tick() {
+  let liveTotalSteps = computeTotalSteps(tracks);
+
+  // Time origin: when step 0 will fire (in performance.now() units).
+  // Updated on seek and play-pause-play cycles.
+  let originTime = performance.now() + START_OFFSET_MS;
+  // The step we should schedule next (cursor in scheduler).
+  let nextStep = 0;
+  // The absolute time of the next step to schedule.
+  let nextStepTime = originTime;
+  // The integer step the visual cursor last reported (for de-dup).
+  let lastEmittedVisualStep = -1;
+
+  // ── Scheduler: pre-schedule notes within the lookahead window ────────
+  function schedulerTick() {
     if (cancelled) return;
 
-    onStep(currentStep);
-
-    // M6: Re-read live BPM every tick so tempo changes take effect immediately.
+    const now = performance.now();
     const liveState = getState?.();
-    const liveBpm = liveState?.bpm ?? bpm;
-    const sMs = stepDurationMs(liveBpm);
-
-    // Read live tracks; fall back to initial snapshot if no getter provided.
-    const liveTracks = liveState?.tracks ?? tracks.map((t) => ({ ...t, muted: false, volume: 127 }));
-
-    // Find the live total steps (pattern length may have changed).
-    const liveTotalSteps = Math.max(16, ...liveTracks.map((t) => t.pattern.bars * STEPS_PER_BAR));
-
-    // O(1) lookup via pre-built notesByStep index (rebuilt only when pattern changes).
-    const stepInLoop = currentStep % liveTotalSteps;
-    for (const { pattern, channel, muted, volume } of liveTracks) {
-      if (muted) continue;
-      const notesAtStep = getNotesByStep(pattern).get(stepInLoop);
-      if (!notesAtStep) continue;
-      for (const note of notesAtStep) {
-        // Scale note velocity by track volume (both 0-127).
-        const scaledVelocity = (note.velocity / 127) * (volume / 127);
-        output.playNote(note.pitch, {
-          channels: channel,
-          attack: Math.max(0.01, scaledVelocity),
-          release: 0.5,
-          duration: note.duration * sMs,
-        });
-      }
+    if (liveState) {
+      stepMs = stepDurationMs(liveState.bpm);
+      liveTotalSteps = computeTotalSteps(liveState.tracks);
     }
+    const liveTracks =
+      liveState?.tracks ?? tracks.map((t) => ({ ...t, muted: false, volume: 127 }));
 
-    currentStep = (currentStep + 1) % liveTotalSteps;
+    while (nextStepTime < now + LOOKAHEAD_MS) {
+      const stepTime = nextStepTime;
+      const step = nextStep;
+      const stepInLoop = step % liveTotalSteps;
 
-    // M6: If BPM changed, update the firing interval dynamically.
-    if (sMs !== lastIntervalMs) {
-      lastIntervalMs = sMs;
-      if (worker) {
-        worker.postMessage({ type: "setInterval", intervalMs: sMs });
-      } else if (fallbackInterval !== null) {
-        clearInterval(fallbackInterval);
-        fallbackInterval = setInterval(tick, sMs);
+      for (const { pattern, channel, muted, volume } of liveTracks) {
+        if (muted) continue;
+        const notesAtStep = getNotesByStep(pattern).get(stepInLoop);
+        if (!notesAtStep) continue;
+        for (const note of notesAtStep) {
+          const scaledVelocity = Math.max(0.01, (note.velocity / 127) * (volume / 127));
+          output.playNote(note.pitch, {
+            channels: channel,
+            attack: scaledVelocity,
+            release: 0.5,
+            duration: note.duration * stepMs,
+            // Absolute DOMHighResTimeStamp — browser fires this at exactly stepTime
+            // regardless of main-thread load. This is what kills the jitter.
+            time: stepTime,
+          });
+        }
       }
+
+      nextStepTime += stepMs;
+      nextStep = (nextStep + 1) % liveTotalSteps;
     }
   }
 
-  // M5: Create a fresh Worker per playback session to avoid onmessage hijacking.
-  const worker = createTimingWorker();
-  let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+  // ── Visual cursor: rAF loop reading performance.now() ───────────────
+  // Decoupled from MIDI scheduling so the cursor moves smoothly at 60fps
+  // instead of jumping in 8-16Hz steps.
+  let rafId: number | null = null;
 
-  if (worker) {
-    worker.onmessage = () => tick();
-    worker.postMessage({ type: "start", intervalMs: lastIntervalMs });
-  } else {
-    fallbackInterval = setInterval(tick, lastIntervalMs);
+  function cursorLoop() {
+    if (cancelled) return;
+    const elapsed = performance.now() - originTime;
+    if (elapsed >= 0) {
+      const visualStep = Math.floor(elapsed / stepMs) % liveTotalSteps;
+      if (visualStep !== lastEmittedVisualStep) {
+        lastEmittedVisualStep = visualStep;
+        onStep(visualStep);
+      }
+    }
+    rafId = requestAnimationFrame(cursorLoop);
   }
 
-  // Fire initial step.
+  // Initial fill + start
+  schedulerTick();
+  rafId = requestAnimationFrame(cursorLoop);
+  const schedulerInterval = setInterval(schedulerTick, SCHEDULER_INTERVAL_MS);
+  // Fire step 0 immediately so the cursor appears at the start without waiting
+  // for the first frame to elapse.
   onStep(0);
 
   // Prevent OS suspension during playback.
@@ -364,19 +412,21 @@ export function playPatternLoopedWithCursor(
   return {
     cancel: () => {
       cancelled = true;
-      if (worker) {
-        // M5: Stop and terminate this session's dedicated worker instance.
-        worker.postMessage({ type: "stop" });
-        worker.terminate();
-      }
-      if (fallbackInterval !== null) clearInterval(fallbackInterval);
+      clearInterval(schedulerInterval);
+      if (rafId !== null) cancelAnimationFrame(rafId);
       if (powerSaveId !== null) electronAPI?.stopPowerSave?.(powerSaveId);
       wakeLock?.release();
+      // Notes already scheduled within LOOKAHEAD_MS will still fire at the
+      // browser level — sendAllNotesOff cuts any sustaining notes.
       sendAllNotesOff(deviceId);
     },
     seek: (step: number) => {
-      currentStep = step;
-      sendAllNotesOff(deviceId); // silence current notes before jumping
+      // Reset playback to start at `step` in the near future.
+      sendAllNotesOff(deviceId);
+      nextStep = step;
+      originTime = performance.now() + START_OFFSET_MS - step * stepMs;
+      nextStepTime = performance.now() + START_OFFSET_MS;
+      lastEmittedVisualStep = -1;
       onStep(step);
     },
   };
