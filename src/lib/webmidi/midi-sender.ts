@@ -1,7 +1,29 @@
-import type { SeqtrackChannel, Pattern } from "@/lib/midi/types";
+import type { SeqtrackChannel, Pattern, Note } from "@/lib/midi/types";
 import { STEPS_PER_BAR } from "@/lib/midi/constants";
 import { stepDurationMs } from "@/lib/midi/note-utils";
 import { getOutputPort } from "./midi-connection";
+
+// ── notesByStep index cache ─────────────────────────────────────────
+// Pre-build a Map<step, Note[]> for each Pattern so the playback tick
+// does an O(1) lookup per track instead of iterating ALL notes on every
+// tick. Keyed by pattern reference — if pattern.notes changes (edit),
+// the pattern object itself changes via updatePattern so the cache
+// entry becomes stale naturally (WeakMap drops it on GC).
+const notesByStepCache = new WeakMap<Pattern, Map<number, Note[]>>();
+
+function getNotesByStep(pattern: Pattern): Map<number, Note[]> {
+  let map = notesByStepCache.get(pattern);
+  if (!map) {
+    map = new Map<number, Note[]>();
+    for (const note of pattern.notes) {
+      const arr = map.get(note.step);
+      if (arr) arr.push(note);
+      else map.set(note.step, [note]);
+    }
+    notesByStepCache.set(pattern, map);
+  }
+  return map;
+}
 
 /**
  * Send a single note to the connected device.
@@ -272,21 +294,21 @@ export function playPatternLoopedWithCursor(
     // Find the live total steps (pattern length may have changed).
     const liveTotalSteps = Math.max(16, ...liveTracks.map((t) => t.pattern.bars * STEPS_PER_BAR));
 
-    // Play all notes at this step across all non-muted tracks.
+    // O(1) lookup via pre-built notesByStep index (rebuilt only when pattern changes).
+    const stepInLoop = currentStep % liveTotalSteps;
     for (const { pattern, channel, muted, volume } of liveTracks) {
       if (muted) continue;
-
-      for (const note of pattern.notes) {
-        if (note.step === currentStep % liveTotalSteps) {
-          // Scale note velocity by track volume (both 0-127).
-          const scaledVelocity = (note.velocity / 127) * (volume / 127);
-          output.playNote(note.pitch, {
-            channels: channel,
-            attack: Math.max(0.01, scaledVelocity),
-            release: 0.5,
-            duration: note.duration * sMs,
-          });
-        }
+      const notesAtStep = getNotesByStep(pattern).get(stepInLoop);
+      if (!notesAtStep) continue;
+      for (const note of notesAtStep) {
+        // Scale note velocity by track volume (both 0-127).
+        const scaledVelocity = (note.velocity / 127) * (volume / 127);
+        output.playNote(note.pitch, {
+          channels: channel,
+          attack: Math.max(0.01, scaledVelocity),
+          release: 0.5,
+          duration: note.duration * sMs,
+        });
       }
     }
 
