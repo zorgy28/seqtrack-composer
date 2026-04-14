@@ -8,13 +8,12 @@ const soundRecommendationSchema = z.object({
 });
 
 const transcriptionTrackSchema = z.object({
-  channel: z.number().min(1).max(11).describe("SEQTRAK channel 1-11"),
+  channel: z.number().describe("SEQTRAK channel 1-11"),
   patterns: z.array(patternSchema),
   soundPreset: soundRecommendationSchema.describe("Recommended sound preset"),
   alternativeSounds: z
     .array(soundRecommendationSchema)
-    .max(3)
-    .describe("Alternative presets"),
+    .describe("Up to 3 alternative presets"),
 });
 
 const transcriptionOptionSchema = z.object({
@@ -32,8 +31,6 @@ const transcriptionOptionSchema = z.object({
 export const transcriptionResultSchema = z.object({
   options: z
     .array(transcriptionOptionSchema)
-    .min(3)
-    .max(3)
     .describe("Exactly 3 arrangement options"),
   analysis: z.object({
     detectedGenre: z.string(),

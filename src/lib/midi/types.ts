@@ -1,8 +1,9 @@
 // ─── Hardware Types ─────────────────────────────────────────────
 
-export type TrackType = "drum" | "synth" | "fm" | "sampler";
+export type TrackType = "drum" | "synth" | "fm" | "sampler" | "mono-synth";
 
-export type SeqtrackChannel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
+/** MIDI channel number. Widened from union type for multi-device support. */
+export type SeqtrackChannel = number;
 
 export interface SeqtrackTrackInfo {
   name: string;
@@ -55,6 +56,8 @@ export interface Project {
   quantize: string;
   createdAt: string;
   updatedAt: string;
+  /** Which device profile this project was created for (undefined = legacy SEQTRAK) */
+  deviceId?: string;
 }
 
 // ─── AI Composition Types ───────────────────────────────────────
@@ -67,6 +70,21 @@ export type DrumStyle =
   | "techno"
   | "dnb"
   | "hiphop";
+
+export type FullStyle =
+  | DrumStyle
+  | "blues_shuffle"
+  | "funk"
+  | "reggae"
+  | "bossa_nova"
+  | "afrobeat"
+  | "disco"
+  | "triphop"
+  | "lofi"
+  | "latin_salsa"
+  | "ambient"
+  | "classic_rock"
+  | "jazz";
 
 export interface CompositionRequest {
   prompt: string;
@@ -97,6 +115,8 @@ export interface MidiDevice {
   name: string;
   manufacturer: string;
   isSeqtrack: boolean;
+  /** Detected device profile ID (undefined for unrecognized devices) */
+  detectedDeviceId?: string;
 }
 
 export interface MidiConnectionState {
@@ -137,6 +157,20 @@ export interface SoundPreset {
   programNumber: number; // Program Change value
 }
 
+/** A user-created MicroFreak preset with full parameter snapshot */
+export interface MicroFreakUserPreset extends SoundPreset {
+  /** CC number → 0-127 value captured via SysEx */
+  params: Record<number, number>;
+  /** Modulation matrix routing (source→destination with amount) */
+  matrixRouting?: Array<{ source: string; destination: string; amount: number }>;
+  /** ISO timestamp when saved */
+  savedAt: string;
+  /** e.g. "2 bars, 14 notes, 120 BPM" */
+  sourceDescription?: string;
+  /** Discriminant for type narrowing */
+  isUserPreset: true;
+}
+
 export interface CCParameter {
   cc: number;
   name: string;
@@ -146,7 +180,7 @@ export interface CCParameter {
   defaultValue: number;
   bipolar: boolean;     // true if 64 = center/zero
   channels: "all" | "drum" | "synth" | "dx" | SeqtrackChannel[];
-  category: "sound" | "effect" | "control" | "fm" | "eq";
+  category: "sound" | "effect" | "control" | "fm" | "eq" | "modulation";
 }
 
 export interface TrackSoundState {

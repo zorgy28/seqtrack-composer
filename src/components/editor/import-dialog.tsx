@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, useMemo } from "react";
+import { useCallback, useState, useMemo, useEffect } from "react";
 import {
   FileMusic,
   Drum,
@@ -21,7 +21,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useProject } from "@/providers/project-provider";
-import { SEQTRAK_TRACKS, ALL_CHANNELS, STEPS_PER_BAR } from "@/lib/midi/constants";
+import { useMidiConnection } from "@/hooks/use-midi-connection";
+import { useSoundControl } from "@/hooks/use-sound-control";
+import { useDeviceProfile } from "@/providers/device-provider";
+import { SEQTRAK_TRACKS, ALL_CHANNELS, STEPS_PER_BAR, MAX_PATTERNS_PER_TRACK, MAX_BARS, getTrackSolidClass } from "@/lib/midi/constants";
+import { importToMultiplePatterns } from "@/lib/import/convert";
 import type { SeqtrackChannel } from "@/lib/midi/types";
 import type { ImportResult } from "@/lib/import/types";
 import { INSTRUMENTS } from "@/lib/import/types";
@@ -48,13 +52,6 @@ const BAR_OPTIONS = [
 
 const INSTRUMENT_OPTIONS = INSTRUMENTS.map((i) => i.name);
 
-const TRACK_BG_DOT: Record<string, string> = {
-  red: "bg-red-500", yellow: "bg-yellow-500", fuchsia: "bg-fuchsia-500",
-  cyan: "bg-cyan-500", blue: "bg-blue-500", green: "bg-green-500",
-  slate: "bg-slate-400", purple: "bg-purple-500", teal: "bg-teal-500",
-  amber: "bg-amber-500", emerald: "bg-emerald-500",
-};
-
 // ── Component ────────────────────────────────────────────────────
 
 interface ImportDialogProps {
@@ -64,6 +61,10 @@ interface ImportDialogProps {
 
 export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const { project, setProject } = useProject();
+  const { device } = useMidiConnection();
+  const { selectPreset } = useSoundControl();
+  const { profile } = useDeviceProfile();
+  const deviceChannels = profile.allChannels;
 
   // ── State ───────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<TabId>("sheet");
@@ -71,8 +72,20 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [instrument, setInstrument] = useState("Piano");
-  const [targetChannel, setTargetChannel] = useState<SeqtrackChannel>(9);
+  const [targetChannel, setTargetChannel] = useState<SeqtrackChannel>(profile.synthChannels[0] ?? 9);
   const [bars, setBars] = useState(4);
+  const [presetSelections, setPresetSelections] = useState<Partial<Record<SeqtrackChannel, number>>>({});
+  const [rangeStart, setRangeStart] = useState(0); // 0-based bar index
+  const [rangeEnd, setRangeEnd] = useState(8);      // exclusive
+
+  // ── Auto-update range for long files ────────────────────────
+  useEffect(() => {
+    if (importResult?.totalBars && importResult.totalBars > 8) {
+      const maxRange = Math.min(importResult.totalBars, MAX_PATTERNS_PER_TRACK * MAX_BARS);
+      setRangeStart(0);
+      setRangeEnd(maxRange);
+    }
+  }, [importResult]);
 
   // ── Instrument -> channel auto-selection ────────────────────
   const handleInstrumentChange = useCallback((name: string) => {
@@ -135,28 +148,113 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
 
     setLoading(true);
     try {
-      const { importToPatterns } = await import("@/lib/import/convert");
-      const patterns = importToPatterns(importResult, project.bpm, bars);
+      const isLongFile = importResult.totalBars && importResult.totalBars > 8;
 
-      const updated = { ...project };
-      const updatedTracks = { ...updated.tracks };
+      if (isLongFile) {
+        // Multi-pattern import
+        const multiPatterns = importToMultiplePatterns(importResult, rangeStart, rangeEnd, project.bpm);
 
-      for (const { channel, pattern } of patterns) {
-        const track = { ...updatedTracks[channel] };
-        track.patterns = [...track.patterns];
-        track.patterns[track.activePattern] = pattern;
-        updatedTracks[channel] = track;
+        const updated = { ...project };
+        const updatedTracks = { ...updated.tracks };
+
+        for (const { channel, patterns } of multiPatterns) {
+          const track = { ...updatedTracks[channel] };
+          track.patterns = patterns;
+          track.activePattern = 0;
+          updatedTracks[channel] = track;
+        }
+
+        updated.tracks = updatedTracks;
+        setProject({ ...updated, updatedAt: new Date().toISOString() });
+
+        // Apply sound presets
+        const { findPresetById } = await import("@/lib/midi/sound-library");
+        const { gmDrumKitPresets } = await import("@/lib/import/gm-to-seqtrack");
+
+        // Melodic presets — 80ms spacing lets SEQTRAK process each Bank Select + PC
+        for (const { channel, presetId } of multiPatterns) {
+          if (!presetId) continue;
+          const preset = findPresetById(presetId);
+          if (preset) {
+            await selectPreset(channel, preset);
+            await new Promise(r => setTimeout(r, 80));
+          }
+        }
+
+        // Drum presets
+        const drumInfo = importResult.trackInfos?.find((t) => t.isDrum);
+        if (drumInfo) {
+          const drumPresets = gmDrumKitPresets(drumInfo.gmProgram);
+          for (const [ch, pid] of Object.entries(drumPresets)) {
+            const preset = findPresetById(Number(pid));
+            if (preset) {
+              await selectPreset(Number(ch) as SeqtrackChannel, preset);
+              await new Promise(r => setTimeout(r, 80));
+            }
+          }
+        }
+
+        onOpenChange(false);
+      } else {
+        // Existing short-file import
+        const { importToPatterns } = await import("@/lib/import/convert");
+        // Use detected BPM from MIDI file, fall back to project BPM
+        const effectiveBpm = importResult.bpm ?? project.bpm;
+        const patterns = importToPatterns(importResult, effectiveBpm, bars, presetSelections);
+
+        const updated = { ...project, bpm: effectiveBpm };
+        const updatedTracks = { ...updated.tracks };
+
+        for (const { channel, pattern, presetId } of patterns) {
+          const track = { ...updatedTracks[channel] };
+          track.patterns = [...track.patterns];
+          track.patterns[track.activePattern] = pattern;
+          // Store selected preset on the track for sound assignment
+          if (presetId) {
+            (track as Record<string, unknown>).selectedPresetId = presetId;
+          }
+          updatedTracks[channel] = track;
+        }
+
+        updated.tracks = updatedTracks;
+        setProject({ ...updated, updatedAt: new Date().toISOString() });
+
+        // Apply sound presets — uses selectPreset which both sends MIDI
+        // program changes AND updates the UI sound state
+        const { findPresetById } = await import("@/lib/midi/sound-library");
+        const { gmDrumKitPresets } = await import("@/lib/import/gm-to-seqtrack");
+
+        // Apply melodic presets (Ch 8-10) — 80ms spacing lets SEQTRAK process each
+        for (const { channel, presetId } of patterns) {
+          if (!presetId) continue;
+          const preset = findPresetById(presetId);
+          if (preset) {
+            await selectPreset(channel, preset);
+            await new Promise(r => setTimeout(r, 80));
+          }
+        }
+
+        // Apply drum kit presets (Ch 1-7) based on detected GM kit
+        const drumInfo = importResult.trackInfos?.find((t) => t.isDrum);
+        if (drumInfo) {
+          const drumPresets = gmDrumKitPresets(drumInfo.gmProgram);
+          for (const [ch, pid] of Object.entries(drumPresets)) {
+            const preset = findPresetById(Number(pid));
+            if (preset) {
+              await selectPreset(Number(ch) as SeqtrackChannel, preset);
+              await new Promise(r => setTimeout(r, 80));
+            }
+          }
+        }
+
+        onOpenChange(false);
       }
-
-      updated.tracks = updatedTracks;
-      setProject({ ...updated, updatedAt: new Date().toISOString() });
-      onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to import patterns");
     } finally {
       setLoading(false);
     }
-  }, [importResult, project, bars, setProject, onOpenChange]);
+  }, [importResult, project, bars, rangeStart, rangeEnd, presetSelections, setProject, selectPreset, onOpenChange]);
 
   // ── Dialog close ───────────────────────────────────────────
   const handleClose = useCallback((nextOpen: boolean) => {
@@ -164,6 +262,9 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
     if (!nextOpen) {
       setImportResult(null);
       setError(null);
+      setPresetSelections({});
+      setRangeStart(0);
+      setRangeEnd(8);
     }
     onOpenChange(nextOpen);
   }, [onOpenChange, loading]);
@@ -172,6 +273,9 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
     setImportResult(null);
     setError(null);
     setLoading(false);
+    setPresetSelections({});
+    setRangeStart(0);
+    setRangeEnd(8);
     onOpenChange(false);
   }, [onOpenChange]);
 
@@ -180,6 +284,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
     setActiveTab(tab);
     setImportResult(null);
     setError(null);
+    setPresetSelections({});
   }, []);
 
   // ── Render ─────────────────────────────────────────────────
@@ -251,6 +356,8 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
               onResult={handleResult}
               onError={handleError}
               disabled={loading}
+              importResult={importResult}
+              onPresetSelectionsChange={setPresetSelections}
             />
           )}
 
@@ -324,11 +431,12 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
                 onChange={(e) => setTargetChannel(parseInt(e.target.value, 10) as SeqtrackChannel)}
                 className="flex h-7 w-full rounded-lg border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
               >
-                {ALL_CHANNELS.map((ch) => {
-                  const info = SEQTRAK_TRACKS[ch];
+                {deviceChannels.map((ch) => {
+                  const profileTrack = profile.tracks.find(t => t.channel === ch);
+                  const name = profileTrack?.name ?? SEQTRAK_TRACKS[ch]?.name ?? `Ch ${ch}`;
                   return (
                     <option key={ch} value={ch}>
-                      Ch {ch} - {info.name}
+                      Ch {ch} - {name}
                     </option>
                   );
                 })}
@@ -336,28 +444,87 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
             </div>
           </div>
 
-          {/* Bars selector */}
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground">Bars</label>
-            <div className="flex gap-1.5">
-              {BAR_OPTIONS.map((opt) => (
+          {/* Bars selector — short mode vs long mode */}
+          {importResult?.totalBars && importResult.totalBars > 8 ? (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                This file contains {importResult.totalBars} bars. Select a range to import (max {MAX_PATTERNS_PER_TRACK * MAX_BARS} bars).
+              </p>
+
+              {/* Range inputs */}
+              <div className="flex items-center gap-3">
+                <label className="text-xs text-muted-foreground">From bar</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={importResult.totalBars}
+                  value={rangeStart + 1}
+                  onChange={(e) => setRangeStart(Math.max(0, parseInt(e.target.value, 10) - 1))}
+                  className="w-16 rounded border border-border bg-muted px-2 py-1 text-xs"
+                />
+                <label className="text-xs text-muted-foreground">to bar</label>
+                <input
+                  type="number"
+                  min={rangeStart + 2}
+                  max={Math.min(importResult.totalBars, rangeStart + MAX_PATTERNS_PER_TRACK * MAX_BARS)}
+                  value={rangeEnd}
+                  onChange={(e) => setRangeEnd(parseInt(e.target.value, 10))}
+                  className="w-16 rounded border border-border bg-muted px-2 py-1 text-xs"
+                />
+                <span className="text-xs text-muted-foreground">
+                  ({rangeEnd - rangeStart} bars = {Math.ceil((rangeEnd - rangeStart) / MAX_BARS)} patterns)
+                </span>
+              </div>
+
+              {/* Quick section presets */}
+              <div className="flex flex-wrap gap-1">
                 <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setBars(opt.value)}
-                  className={cn(
-                    "flex-1 rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors",
-                    bars === opt.value
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-input text-muted-foreground hover:border-foreground/30 hover:text-foreground",
-                  )}
+                  onClick={() => { setRangeStart(0); setRangeEnd(Math.min(8, importResult.totalBars!)); }}
+                  className="rounded px-2 py-0.5 text-xs bg-muted hover:bg-accent text-muted-foreground"
                 >
-                  <div>{opt.label} bar{opt.value > 1 ? "s" : ""}</div>
-                  <div className="text-[10px] opacity-60">{opt.steps} steps</div>
+                  First 8 bars
                 </button>
-              ))}
+                {importResult.totalBars > 8 && (
+                  <button
+                    onClick={() => { setRangeStart(8); setRangeEnd(Math.min(16, importResult.totalBars!)); }}
+                    className="rounded px-2 py-0.5 text-xs bg-muted hover:bg-accent text-muted-foreground"
+                  >
+                    Bars 9-16
+                  </button>
+                )}
+                {importResult.totalBars <= MAX_PATTERNS_PER_TRACK * MAX_BARS && (
+                  <button
+                    onClick={() => { setRangeStart(0); setRangeEnd(importResult.totalBars!); }}
+                    className="rounded px-2 py-0.5 text-xs bg-primary/20 hover:bg-primary/30 text-primary"
+                  >
+                    Full song
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-muted-foreground">Bars</label>
+              <div className="flex gap-1.5">
+                {BAR_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setBars(opt.value)}
+                    className={cn(
+                      "flex-1 rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors",
+                      bars === opt.value
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-input text-muted-foreground hover:border-foreground/30 hover:text-foreground",
+                    )}
+                  >
+                    <div>{opt.label} bar{opt.value > 1 ? "s" : ""}</div>
+                    <div className="text-[10px] opacity-60">{opt.steps} steps</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Preview section */}
           {previewData && previewData.totalNotes > 0 && (
@@ -383,13 +550,13 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
                 {Array.from(previewData.channelCounts.entries())
                   .sort(([a], [b]) => a - b)
                   .map(([ch, count]) => {
-                    const info = SEQTRAK_TRACKS[ch as SeqtrackChannel];
-                    if (!info) return null;
-                    const dotColor = TRACK_BG_DOT[info.color] ?? "bg-gray-500";
+                    const profileTrack = profile.tracks.find(t => t.channel === ch);
+                    const trackName = profileTrack?.name ?? SEQTRAK_TRACKS[ch as SeqtrackChannel]?.name ?? `Ch ${ch}`;
+                    const dotColor = getTrackSolidClass(ch as SeqtrackChannel);
                     return (
                       <div key={ch} className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         <span className={cn("size-2 rounded-full", dotColor)} />
-                        <span className="font-medium">{info.name}</span>
+                        <span className="font-medium">{trackName}</span>
                         <span className="opacity-60">{count}</span>
                       </div>
                     );

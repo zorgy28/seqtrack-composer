@@ -22,6 +22,7 @@ export interface UseAudioMonitorReturn {
   toggleMonitoring: () => void;
   setVolume: (vol: number) => void;
   getAnalyser: () => AnalyserNode | null;
+  getStream: () => MediaStream | null;
 }
 
 export function useAudioMonitor(): UseAudioMonitorReturn {
@@ -35,6 +36,8 @@ export function useAudioMonitor(): UseAudioMonitorReturn {
   const stateRef = useRef<AudioMonitorState | null>(null);
   const rafRef = useRef<number | null>(null);
   const lastLevelUpdateRef = useRef(0);
+  // Pre-allocate typed array for RMS computation (avoids ~30 GC allocs/sec)
+  const levelDataRef = useRef<Float32Array<ArrayBuffer> | null>(null);
 
   // Enumerate audio input devices on mount
   useEffect(() => {
@@ -81,7 +84,11 @@ export function useAudioMonitor(): UseAudioMonitorReturn {
         lastLevelUpdateRef.current = now;
         const s = stateRef.current;
         if (s) {
-          const data = new Float32Array(s.analyser.fftSize);
+          const fftSize = s.analyser.fftSize;
+          if (!levelDataRef.current || levelDataRef.current.length !== fftSize) {
+            levelDataRef.current = new Float32Array(fftSize);
+          }
+          const data = levelDataRef.current;
           s.analyser.getFloatTimeDomainData(data);
           let sum = 0;
           for (let i = 0; i < data.length; i++) {
@@ -125,19 +132,11 @@ export function useAudioMonitor(): UseAudioMonitorReturn {
         const state = await startAudioCapture(resolvedDeviceId);
         stateRef.current = state;
         setIsCapturing(true);
-        setSelectedDeviceId(resolvedDeviceId ?? null);
+        setSelectedDeviceId(resolvedDeviceId);
 
         // Re-enumerate devices after permission granted (labels now available)
         const inputs = await listAudioInputDevices();
         setDevices(inputs);
-
-        // Auto-select SEQTRAK if we didn't have a specific device
-        if (!resolvedDeviceId) {
-          const seqtrack = await findSeqtrackAudioInput();
-          if (seqtrack) {
-            setSelectedDeviceId(seqtrack.deviceId);
-          }
-        }
 
         startLevelLoop();
       } catch (err) {
@@ -194,6 +193,10 @@ export function useAudioMonitor(): UseAudioMonitorReturn {
     return stateRef.current?.analyser ?? null;
   }, []);
 
+  const getStream = useCallback((): MediaStream | null => {
+    return stateRef.current?.stream ?? null;
+  }, []);
+
   // Resume AudioContext and level loop when tab becomes visible again
   useEffect(() => {
     function handleVisibilityChange() {
@@ -240,5 +243,6 @@ export function useAudioMonitor(): UseAudioMonitorReturn {
     toggleMonitoring,
     setVolume,
     getAnalyser,
+    getStream,
   };
 }

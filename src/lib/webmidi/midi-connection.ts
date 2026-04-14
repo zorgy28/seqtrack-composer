@@ -1,5 +1,6 @@
 import type { MidiDevice, MidiConnectionState } from "@/lib/midi/types";
 import { SEQTRAK_DEVICE_NAMES } from "@/lib/midi/constants";
+import { detectDeviceProfile } from "@/lib/devices/registry";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let webmidiInstance: any = null;
@@ -12,6 +13,7 @@ function toMidiDevice(
   port: { id: string; name: string | undefined; manufacturer: string | undefined },
 ): MidiDevice {
   const name = port.name ?? "Unknown";
+  const detectedProfile = detectDeviceProfile(name);
   return {
     id: port.id,
     name,
@@ -19,6 +21,7 @@ function toMidiDevice(
     isSeqtrack: SEQTRAK_DEVICE_NAMES.some((n) =>
       name.toLowerCase().includes(n.toLowerCase()),
     ),
+    detectedDeviceId: detectedProfile.id !== "generic" ? detectedProfile.id : undefined,
   };
 }
 
@@ -35,18 +38,24 @@ export async function initMidi(): Promise<MidiConnectionState> {
 
   try {
     const { WebMidi } = await import("webmidi");
-    await WebMidi.enable({ sysex: true });
+    await Promise.race([
+      WebMidi.enable({ sysex: true }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("MIDI initialization timed out after 10 seconds")), 10_000),
+      ),
+    ]);
     webmidiInstance = WebMidi;
 
     const outputs = WebMidi.outputs.map((o) => toMidiDevice(o));
     const inputs = WebMidi.inputs.map((i) => toMidiDevice(i));
 
-    // Auto-detect SEQTRAK
-    const seqtrack = outputs.find((o) => o.isSeqtrack) ?? null;
+    // Auto-detect: prefer recognized devices (SEQTRAK, MicroFreak, etc.), then any device
+    const recognized = outputs.find((o) => o.detectedDeviceId) ?? null;
+    const autoDevice = recognized ?? (outputs.length === 1 ? outputs[0] : null);
 
     return {
-      status: seqtrack ? "connected" : "disconnected",
-      device: seqtrack,
+      status: autoDevice ? "connected" : "disconnected",
+      device: autoDevice,
       outputs,
       inputs,
       error: null,

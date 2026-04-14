@@ -8,6 +8,9 @@ import {
   ChevronDown,
   Mic,
   MicOff,
+  Activity,
+  BarChart3,
+  SignalHigh,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -20,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAudioMonitor } from "@/hooks/use-audio-monitor";
+import { getSettings, updateSettings } from "@/lib/settings";
 
 interface AudioMonitorProps {
   className?: string;
@@ -37,6 +41,8 @@ const WaveformCanvas = memo(function WaveformCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
   const lastFrameRef = useRef(0);
+  // Pre-allocate typed array to avoid GC pressure (~30 allocs/sec eliminated)
+  const dataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -59,7 +65,11 @@ const WaveformCanvas = memo(function WaveformCanvas({
       }
 
       const bufferLength = analyser.fftSize;
-      const data = new Uint8Array(bufferLength);
+      // Reuse buffer if size matches, otherwise allocate once
+      if (!dataRef.current || dataRef.current.length !== bufferLength) {
+        dataRef.current = new Uint8Array(bufferLength);
+      }
+      const data = dataRef.current;
       analyser.getByteTimeDomainData(data);
 
       const w = canvas.width;
@@ -153,6 +163,8 @@ const SpectrumCanvas = memo(function SpectrumCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
   const lastFrameRef = useRef(0);
+  // Pre-allocate typed array to avoid GC pressure (~30 allocs/sec eliminated)
+  const dataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -174,7 +186,12 @@ const SpectrumCanvas = memo(function SpectrumCanvas({
         return;
       }
 
-      const data = new Uint8Array(analyser.frequencyBinCount);
+      const binCount = analyser.frequencyBinCount;
+      // Reuse buffer if size matches, otherwise allocate once
+      if (!dataRef.current || dataRef.current.length !== binCount) {
+        dataRef.current = new Uint8Array(binCount);
+      }
+      const data = dataRef.current;
       analyser.getByteFrequencyData(data);
 
       const w = canvas.width;
@@ -331,6 +348,49 @@ export function AudioMonitor({ className }: AudioMonitorProps) {
   const [expanded, setExpanded] = useState(false);
   const [volume, setVolumeState] = useState(100);
 
+  // Visualization toggles — hydrated from settings, persisted on change.
+  // When a toggle flips OFF, the corresponding canvas component unmounts
+  // entirely, which cancels its rAF loop via useEffect cleanup. This is
+  // the fix for the playback lag — those 30fps rAF loops were running
+  // constantly and competing with the MIDI tick handler.
+  const [showWaveform, setShowWaveform] = useState(() => getSettings().showWaveform);
+  const [showSpectrum, setShowSpectrum] = useState(() => getSettings().showSpectrum);
+  const [showLevelMeter, setShowLevelMeter] = useState(() => getSettings().showLevelMeter);
+
+  const toggleWaveform = useCallback(() => {
+    setShowWaveform((v) => {
+      const next = !v;
+      updateSettings({ showWaveform: next });
+      return next;
+    });
+  }, []);
+
+  const toggleSpectrum = useCallback(() => {
+    setShowSpectrum((v) => {
+      const next = !v;
+      updateSettings({ showSpectrum: next });
+      return next;
+    });
+  }, []);
+
+  const toggleLevelMeter = useCallback(() => {
+    setShowLevelMeter((v) => {
+      const next = !v;
+      updateSettings({ showLevelMeter: next });
+      return next;
+    });
+  }, []);
+
+  // Auto-start capture + monitoring when expanding (saves 3 clicks)
+  const handleExpand = useCallback(async () => {
+    setExpanded(true);
+    if (!isCapturing) {
+      await startCapture(selectedDeviceId ?? undefined);
+      // Enable speaker monitoring by default
+      toggleMonitoring();
+    }
+  }, [isCapturing, startCapture, selectedDeviceId, toggleMonitoring]);
+
   const handleVolumeChange = useCallback(
     (values: number[]) => {
       const v = values[0];
@@ -340,20 +400,13 @@ export function AudioMonitor({ className }: AudioMonitorProps) {
     [setVolume],
   );
 
-  const handleStartCapture = useCallback(
-    async (deviceId?: string) => {
-      await startCapture(deviceId);
-    },
-    [startCapture],
-  );
-
   const handleToggleCapture = useCallback(async () => {
     if (isCapturing) {
       stopCapture();
     } else {
-      await handleStartCapture(selectedDeviceId ?? undefined);
+      await startCapture(selectedDeviceId ?? undefined);
     }
-  }, [isCapturing, stopCapture, handleStartCapture, selectedDeviceId]);
+  }, [isCapturing, stopCapture, startCapture, selectedDeviceId]);
 
   const handleDeviceChange = useCallback(
     async (value: string | null) => {
@@ -362,9 +415,9 @@ export function AudioMonitor({ className }: AudioMonitorProps) {
       if (isCapturing) {
         stopCapture();
       }
-      await handleStartCapture(value);
+      await startCapture(value);
     },
-    [isCapturing, stopCapture, handleStartCapture],
+    [isCapturing, stopCapture, startCapture],
   );
 
   // Collapsed view — thin bar
@@ -375,7 +428,7 @@ export function AudioMonitor({ className }: AudioMonitorProps) {
           "flex items-center gap-2 px-3 py-1.5 border-t border-border bg-muted/30 cursor-pointer select-none",
           className,
         )}
-        onClick={() => setExpanded(true)}
+        onClick={handleExpand}
       >
         <Volume2 className="size-3.5 text-muted-foreground" />
         <span className="text-xs text-muted-foreground font-medium">
@@ -521,6 +574,48 @@ export function AudioMonitor({ className }: AudioMonitorProps) {
           </div>
         )}
 
+        {/* Visualization toggles */}
+        {isCapturing && (
+          <div className="flex items-center gap-0.5 mr-1">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className={cn(
+                "h-6 w-6",
+                showWaveform ? "text-primary" : "text-muted-foreground/40",
+              )}
+              onClick={toggleWaveform}
+              title={showWaveform ? "Hide waveform" : "Show waveform"}
+            >
+              <Activity className="size-3" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className={cn(
+                "h-6 w-6",
+                showSpectrum ? "text-primary" : "text-muted-foreground/40",
+              )}
+              onClick={toggleSpectrum}
+              title={showSpectrum ? "Hide spectrum" : "Show spectrum"}
+            >
+              <BarChart3 className="size-3" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className={cn(
+                "h-6 w-6",
+                showLevelMeter ? "text-primary" : "text-muted-foreground/40",
+              )}
+              onClick={toggleLevelMeter}
+              title={showLevelMeter ? "Hide level meter" : "Show level meter"}
+            >
+              <SignalHigh className="size-3" />
+            </Button>
+          </div>
+        )}
+
         {/* Collapse button */}
         <Button
           variant="ghost"
@@ -553,24 +648,34 @@ export function AudioMonitor({ className }: AudioMonitorProps) {
 
         {isCapturing && (
           <>
-            {/* Waveform */}
-            <div>
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
-                Waveform
-              </span>
-              <WaveformCanvas getAnalyser={getAnalyser} />
-            </div>
+            {/* Waveform — unmounted entirely when disabled, stops rAF loop */}
+            {showWaveform && (
+              <div>
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
+                  Waveform
+                </span>
+                <WaveformCanvas getAnalyser={getAnalyser} />
+              </div>
+            )}
 
-            {/* Spectrum */}
-            <div>
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
-                Spectrum
-              </span>
-              <SpectrumCanvas getAnalyser={getAnalyser} />
-            </div>
+            {/* Spectrum — unmounted entirely when disabled, stops rAF loop */}
+            {showSpectrum && (
+              <div>
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
+                  Spectrum
+                </span>
+                <SpectrumCanvas getAnalyser={getAnalyser} />
+              </div>
+            )}
 
             {/* Level meter */}
-            <LevelMeter level={level} />
+            {showLevelMeter && <LevelMeter level={level} />}
+
+            {!showWaveform && !showSpectrum && !showLevelMeter && (
+              <div className="text-[10px] text-muted-foreground/60 text-center py-2">
+                Visualizations hidden — use toggles in header to show.
+              </div>
+            )}
           </>
         )}
       </div>

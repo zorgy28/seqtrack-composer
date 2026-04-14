@@ -21,6 +21,14 @@ self.onmessage = (e) => {
     }, intervalMs);
   }
 
+  if (type === "setInterval") {
+    // Update the tick interval (e.g. on BPM change) without stopping
+    if (timerId !== null) clearInterval(timerId);
+    timerId = setInterval(() => {
+      self.postMessage({ type: "tick" });
+    }, intervalMs);
+  }
+
   if (type === "stop") {
     if (timerId !== null) {
       clearInterval(timerId);

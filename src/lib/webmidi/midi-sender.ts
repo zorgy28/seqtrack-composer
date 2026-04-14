@@ -1,7 +1,29 @@
-import type { SeqtrackChannel, Pattern } from "@/lib/midi/types";
+import type { SeqtrackChannel, Pattern, Note } from "@/lib/midi/types";
 import { STEPS_PER_BAR } from "@/lib/midi/constants";
 import { stepDurationMs } from "@/lib/midi/note-utils";
 import { getOutputPort } from "./midi-connection";
+
+// ── notesByStep index cache ─────────────────────────────────────────
+// Pre-build a Map<step, Note[]> for each Pattern so the playback tick
+// does an O(1) lookup per track instead of iterating ALL notes on every
+// tick. Keyed by pattern reference — if pattern.notes changes (edit),
+// the pattern object itself changes via updatePattern so the cache
+// entry becomes stale naturally (WeakMap drops it on GC).
+const notesByStepCache = new WeakMap<Pattern, Map<number, Note[]>>();
+
+function getNotesByStep(pattern: Pattern): Map<number, Note[]> {
+  let map = notesByStepCache.get(pattern);
+  if (!map) {
+    map = new Map<number, Note[]>();
+    for (const note of pattern.notes) {
+      const arr = map.get(note.step);
+      if (arr) arr.push(note);
+      else map.set(note.step, [note]);
+    }
+    notesByStepCache.set(pattern, map);
+  }
+  return map;
+}
 
 /**
  * Send a single note to the connected device.
@@ -25,8 +47,15 @@ export function sendNote(
   });
 }
 
+// ── CC throttle (leading + trailing, 40ms window per channel-CC) ──────────
+// Leading edge: instant response on first touch (critical for musical feel).
+// Trailing edge: final value always arrives (user's release position must reach device).
+// Chrome silently drops MIDI messages on buffer overrun (WebAudio Issue #158).
+const CC_THROTTLE_MS = 40;
+const ccThrottleMap = new Map<string, { timer: ReturnType<typeof setTimeout>; lastSent: number }>();
+
 /**
- * Send a CC message to the device.
+ * Send a CC message to the device (throttled: leading + trailing, 40ms window).
  */
 export function sendCC(
   deviceId: string,
@@ -37,7 +66,25 @@ export function sendCC(
   const output = getOutputPort(deviceId);
   if (!output) return;
 
-  output.sendControlChange(cc, value, { channels: channel });
+  const key = `${channel}-${cc}`;
+  const entry = ccThrottleMap.get(key);
+  const now = Date.now();
+
+  if (!entry || now - entry.lastSent >= CC_THROTTLE_MS) {
+    // Leading edge: send immediately
+    output.sendControlChange(cc, value, { channels: channel });
+    if (entry?.timer) clearTimeout(entry.timer);
+    ccThrottleMap.set(key, { timer: undefined as unknown as ReturnType<typeof setTimeout>, lastSent: now });
+  } else {
+    // Intermediate: schedule trailing edge to send final value
+    if (entry.timer) clearTimeout(entry.timer);
+    const remaining = CC_THROTTLE_MS - (now - entry.lastSent);
+    entry.timer = setTimeout(() => {
+      output.sendControlChange(cc, value, { channels: channel });
+      const te = ccThrottleMap.get(key);
+      if (te) te.lastSent = Date.now();
+    }, remaining);
+  }
 }
 
 /**
@@ -83,13 +130,15 @@ export function sendSysEx(
 }
 
 /**
- * Send all-notes-off on all channels (panic).
+ * Send all-notes-off on the given channels (panic).
+ * Defaults to channels 1-16 if no channels specified.
  */
-export function sendAllNotesOff(deviceId: string): void {
+export function sendAllNotesOff(deviceId: string, channels?: number[]): void {
   const output = getOutputPort(deviceId);
   if (!output) return;
 
-  for (let ch = 1; ch <= 11; ch++) {
+  const chs = channels ?? Array.from({ length: 16 }, (_, i) => i + 1);
+  for (const ch of chs) {
     output.sendAllNotesOff({ channels: ch });
   }
 }
@@ -183,18 +232,18 @@ export function playPatternLooped(
 // but Web Workers maintain full-speed timing regardless.
 // ---------------------------------------------------------------------------
 
-let sharedWorker: Worker | null = null;
-
-function getTimingWorker(): Worker | null {
+/**
+ * Create a fresh Worker instance for one playback session.
+ * A new instance is created per call to avoid onmessage hijacking
+ * when playPatternLoopedWithCursor is called concurrently.
+ */
+function createTimingWorker(): Worker | null {
   if (typeof window === "undefined") return null;
-  if (!sharedWorker) {
-    try {
-      sharedWorker = new Worker("/timing-worker.js");
-    } catch {
-      return null; // fallback to setInterval
-    }
+  try {
+    return new Worker("/timing-worker.js");
+  } catch {
+    return null; // fallback to setInterval
   }
-  return sharedWorker;
 }
 
 /**
@@ -210,6 +259,26 @@ export interface PlaybackControl {
   seek: (step: number) => void;
 }
 
+/**
+ * Lookahead MIDI scheduler with browser-level note timing and rAF cursor.
+ *
+ * How it works (Chris Wilson "A Tale of Two Clocks" pattern):
+ * 1. **Scheduler**: Every SCHEDULER_INTERVAL_MS, peek at the next ~LOOKAHEAD_MS
+ *    of upcoming steps and pre-schedule each note via output.playNote with an
+ *    absolute `time` parameter. The browser's MIDI subsystem fires the message
+ *    at the exact wall-clock time regardless of main-thread load. This gives
+ *    rock-solid audio timing and eliminates the jitter the user was hearing.
+ * 2. **Cursor**: A separate requestAnimationFrame loop reads performance.now()
+ *    and computes the current step from elapsed time. It only calls onStep()
+ *    when the integer step changes (still required for song mode wrap detection
+ *    and the position display in the transport bar). The cursor visual itself
+ *    can interpolate smoothly because it's driven by rAF (60fps) instead of
+ *    the 8-16Hz MIDI tick rate.
+ *
+ * This replaces the previous tick-based engine where every 16th-note interval
+ * triggered a main-thread callback that did MIDI sends + React state updates
+ * synchronously. The new design has near-zero per-tick main-thread work.
+ */
 export function playPatternLoopedWithCursor(
   deviceId: string,
   tracks: Array<{ pattern: Pattern; channel: SeqtrackChannel }>,
@@ -223,60 +292,117 @@ export function playPatternLoopedWithCursor(
   const output = getOutputPort(deviceId);
   if (!output) return { cancel: () => {}, seek: () => {} };
 
-  const sMs = stepDurationMs(bpm);
+  // Lookahead: how far in the future to schedule notes.
+  // Smaller = tighter cancel/state-change response; larger = more jitter immunity.
+  const LOOKAHEAD_MS = 120;
+  // How often the scheduler wakes up to refill the lookahead window.
+  const SCHEDULER_INTERVAL_MS = 25;
+  // Initial offset before the first step fires (small so play feels instant).
+  const START_OFFSET_MS = 30;
 
-  let currentStep = 0;
   let cancelled = false;
+  let stepMs = stepDurationMs(bpm);
 
-  function tick() {
+  function computeTotalSteps(
+    ts: Array<{ pattern: Pattern }>,
+  ): number {
+    return Math.max(16, ...ts.map((t) => t.pattern.bars * STEPS_PER_BAR));
+  }
+
+  let liveTotalSteps = computeTotalSteps(tracks);
+
+  // Time origin: when step 0 will fire (in performance.now() units).
+  // Updated on seek and play-pause-play cycles.
+  let originTime = performance.now() + START_OFFSET_MS;
+  // The step we should schedule next (cursor in scheduler).
+  let nextStep = 0;
+  // The absolute time of the next step to schedule.
+  let nextStepTime = originTime;
+  // The integer step the visual cursor last reported (for de-dup).
+  let lastEmittedVisualStep = -1;
+
+  // ── Scheduler: pre-schedule notes within the lookahead window ────────
+  function schedulerTick() {
     if (cancelled) return;
 
-    onStep(currentStep);
+    const now = performance.now();
+    const liveState = getState?.();
+    if (liveState) {
+      stepMs = stepDurationMs(liveState.bpm);
+      liveTotalSteps = computeTotalSteps(liveState.tracks);
+    }
+    const liveTracks =
+      liveState?.tracks ?? tracks.map((t) => ({ ...t, muted: false, volume: 127 }));
 
-    // Read live state if getter provided, otherwise use initial tracks
-    const liveTracks = getState?.().tracks ?? tracks.map((t) => ({ ...t, muted: false, volume: 127 }));
+    while (nextStepTime < now + LOOKAHEAD_MS) {
+      const stepTime = nextStepTime;
+      const step = nextStep;
+      const stepInLoop = step % liveTotalSteps;
 
-    // Find the live total steps (pattern length may have changed)
-    const liveTotalSteps = Math.max(16, ...liveTracks.map((t) => t.pattern.bars * STEPS_PER_BAR));
-
-    // Play all notes at this step across all non-muted tracks
-    for (const { pattern, channel, muted, volume } of liveTracks) {
-      if (muted) continue;
-
-      for (const note of pattern.notes) {
-        if (note.step === currentStep % liveTotalSteps) {
-          // Scale note velocity by track volume (both 0-127)
-          const scaledVelocity = (note.velocity / 127) * (volume / 127);
+      for (const { pattern, channel, muted, volume } of liveTracks) {
+        if (muted) continue;
+        const notesAtStep = getNotesByStep(pattern).get(stepInLoop);
+        if (!notesAtStep) continue;
+        for (const note of notesAtStep) {
+          const scaledVelocity = Math.max(0.01, (note.velocity / 127) * (volume / 127));
           output.playNote(note.pitch, {
             channels: channel,
-            attack: Math.max(0.01, scaledVelocity),
+            attack: scaledVelocity,
             release: 0.5,
-            duration: note.duration * sMs,
+            duration: note.duration * stepMs,
+            // Absolute DOMHighResTimeStamp — browser fires this at exactly stepTime
+            // regardless of main-thread load. This is what kills the jitter.
+            time: stepTime,
           });
         }
       }
+
+      nextStepTime += stepMs;
+      nextStep = (nextStep + 1) % liveTotalSteps;
     }
-
-    currentStep = (currentStep + 1) % liveTotalSteps;
   }
 
-  // Try worker-based timing (background-tab safe), fall back to setInterval
-  const worker = getTimingWorker();
-  let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+  // ── Visual cursor: rAF loop reading performance.now() ───────────────
+  // Decoupled from MIDI scheduling so the cursor moves smoothly at 60fps
+  // instead of jumping in 8-16Hz steps.
+  let rafId: number | null = null;
 
-  if (worker) {
-    worker.onmessage = () => tick();
-    worker.postMessage({ type: "start", intervalMs: sMs });
-  } else {
-    fallbackInterval = setInterval(tick, sMs);
+  function cursorLoop() {
+    if (cancelled) return;
+    const elapsed = performance.now() - originTime;
+    if (elapsed >= 0) {
+      const visualStep = Math.floor(elapsed / stepMs) % liveTotalSteps;
+      if (visualStep !== lastEmittedVisualStep) {
+        lastEmittedVisualStep = visualStep;
+        onStep(visualStep);
+      }
+    }
+    rafId = requestAnimationFrame(cursorLoop);
   }
 
-  // Fire initial step
+  // Initial fill + start
+  schedulerTick();
+  rafId = requestAnimationFrame(cursorLoop);
+  const schedulerInterval = setInterval(schedulerTick, SCHEDULER_INTERVAL_MS);
+  // Fire step 0 immediately so the cursor appears at the start without waiting
+  // for the first frame to elapse.
   onStep(0);
 
-  // Request Wake Lock to prevent OS suspension during playback
+  // Prevent OS suspension during playback.
+  // In Electron: use powerSaveBlocker (more reliable, works with screen off).
+  // In browser: fall back to Screen Wake Lock API.
   let wakeLock: WakeLockSentinel | null = null;
-  if ("wakeLock" in navigator) {
+  let powerSaveId: number | null = null;
+  const electronAPI = (window as unknown as Record<string, unknown>).electronAPI as
+    | { startPowerSave?: () => Promise<number>; stopPowerSave?: (id: number) => Promise<void> }
+    | undefined;
+
+  if (electronAPI?.startPowerSave) {
+    electronAPI.startPowerSave().then(
+      (id) => { if (!cancelled) powerSaveId = id; else electronAPI.stopPowerSave?.(id); },
+      () => {},
+    );
+  } else if ("wakeLock" in navigator) {
     navigator.wakeLock.request("screen").then(
       (wl) => { if (!cancelled) wakeLock = wl; else wl.release(); },
       () => {},
@@ -286,18 +412,98 @@ export function playPatternLoopedWithCursor(
   return {
     cancel: () => {
       cancelled = true;
-      if (worker) {
-        worker.postMessage({ type: "stop" });
-        worker.onmessage = null;
-      }
-      if (fallbackInterval !== null) clearInterval(fallbackInterval);
+      clearInterval(schedulerInterval);
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      if (powerSaveId !== null) electronAPI?.stopPowerSave?.(powerSaveId);
       wakeLock?.release();
+      // Notes already scheduled within LOOKAHEAD_MS will still fire at the
+      // browser level — sendAllNotesOff cuts any sustaining notes.
       sendAllNotesOff(deviceId);
     },
     seek: (step: number) => {
-      currentStep = step;
-      sendAllNotesOff(deviceId); // silence current notes before jumping
+      // Reset playback to start at `step` in the near future.
+      sendAllNotesOff(deviceId);
+      nextStep = step;
+      originTime = performance.now() + START_OFFSET_MS - step * stepMs;
+      nextStepTime = performance.now() + START_OFFSET_MS;
+      lastEmittedVisualStep = -1;
       onStep(step);
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// MIDI Transport — Start, Stop, Clock for syncing external sequencers
+// ---------------------------------------------------------------------------
+
+/**
+ * Send MIDI Start (0xFA) — tells external sequencer to start from beat 1.
+ */
+export function sendMidiStart(deviceId: string): void {
+  const output = getOutputPort(deviceId);
+  if (!output) return;
+  output.send([0xfa]);
+}
+
+/**
+ * Send MIDI Stop (0xFC) — tells external sequencer to stop.
+ */
+export function sendMidiStop(deviceId: string): void {
+  const output = getOutputPort(deviceId);
+  if (!output) return;
+  output.send([0xfc]);
+}
+
+/**
+ * Send MIDI Continue (0xFB) — tells external sequencer to resume.
+ */
+export function sendMidiContinue(deviceId: string): void {
+  const output = getOutputPort(deviceId);
+  if (!output) return;
+  output.send([0xfb]);
+}
+
+/**
+ * Start sending MIDI Clock (0xF8) at the given BPM.
+ * MIDI Clock = 24 pulses per quarter note (PPQN).
+ * Returns a stop function.
+ */
+export function startMidiClock(deviceId: string, bpm: number): () => void {
+  const output = getOutputPort(deviceId);
+  if (!output) return () => {};
+
+  const intervalMs = 60000 / (bpm * 24); // ms between clock ticks
+  let stopped = false;
+
+  // Use a Worker for precise timing if available, else setInterval
+  let worker: Worker | null = null;
+  let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+
+  const tick = () => {
+    if (stopped) return;
+    output.send([0xf8]);
+  };
+
+  if (typeof window !== "undefined") {
+    try {
+      worker = new Worker("/timing-worker.js");
+      worker.onmessage = () => tick();
+      worker.postMessage({ type: "start", intervalMs });
+    } catch {
+      worker = null;
+    }
+  }
+
+  if (!worker) {
+    fallbackInterval = setInterval(tick, intervalMs);
+  }
+
+  return () => {
+    stopped = true;
+    if (worker) {
+      worker.postMessage({ type: "stop" });
+      worker.terminate();
+    }
+    if (fallbackInterval !== null) clearInterval(fallbackInterval);
   };
 }

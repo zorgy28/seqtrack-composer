@@ -1,111 +1,134 @@
-import { anthropic } from "@ai-sdk/anthropic";
-import { google } from "@ai-sdk/google";
-import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
-import { getSettings } from "@/lib/settings";
+import type { ProviderConfig } from "@/lib/settings";
 
-export type LLMProvider = "claude" | "gemini" | "openrouter" | "lmstudio";
-
-// Custom fetch with 5-minute timeout for local LLMs (they can be slow)
+// Custom fetch with 10-minute timeout for local LLMs (large models can be very slow)
 const lmStudioFetch: typeof fetch = (url, init) => {
+  return fetch(url, {
+    ...init,
+    signal: init?.signal ?? AbortSignal.timeout(600_000), // 10 minutes
+  });
+};
+
+const ollamaFetch: typeof fetch = (url, init) => {
   return fetch(url, {
     ...init,
     signal: init?.signal ?? AbortSignal.timeout(300_000), // 5 minutes
   });
 };
 
-function createLMStudioProvider() {
-  return createOpenAICompatible({
-    name: "lmstudio",
-    baseURL: process.env.LM_STUDIO_URL || "http://host.docker.internal:1235/v1",
-    headers: {
-      Authorization: `Bearer ${process.env.LM_STUDIO_API_KEY || ""}`,
-    },
-    fetch: lmStudioFetch,
-  });
-}
-
 /**
- * Return the configured AI SDK model based on settings store.
+ * Create an AI SDK LanguageModel from a ProviderConfig sent by the client.
+ * All API keys and URLs come from the config — no process.env reads.
  */
-export function getModel(): LanguageModel {
-  const settings = getSettings();
-  const provider = settings.llmProvider;
+export async function getModelFromConfig(config: ProviderConfig): Promise<LanguageModel> {
+  const provider = config.provider || "claude";
 
   if (provider === "claude") {
-    return anthropic(settings.claudeModel || "claude-sonnet-4-6");
+    const { createAnthropic } = await import("@ai-sdk/anthropic");
+    const anthropic = createAnthropic({ apiKey: config.apiKey || undefined });
+    return anthropic(config.modelId || "claude-sonnet-4-6");
   }
 
   if (provider === "gemini") {
-    return google(settings.geminiModel || "gemini-2.5-flash");
-    // Note: @ai-sdk/google reads GOOGLE_GENERATIVE_AI_API_KEY from env
-    // or we can pass apiKey in settings
+    const { createGoogleGenerativeAI } = await import("@ai-sdk/google");
+    const google = createGoogleGenerativeAI({ apiKey: config.apiKey || undefined });
+    return google(config.modelId || "gemini-2.5-flash");
   }
 
   if (provider === "openrouter") {
-    const openrouter = createOpenRouter({
-      apiKey: settings.openrouterApiKey || process.env.OPENROUTER_API_KEY || "",
-    });
-    return openrouter(settings.openrouterModel || "anthropic/claude-sonnet-4.5");
+    const { createOpenRouter } = await import("@openrouter/ai-sdk-provider");
+    const openrouter = createOpenRouter({ apiKey: config.apiKey || "" });
+    return openrouter(config.modelId || "anthropic/claude-sonnet-4.5");
   }
 
   if (provider === "lm-studio") {
-    return createLMStudioProvider()(settings.lmStudioModel || "minimax/minimax-m2.5");
-  }
+    const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
+    const lmApiKey = config.apiKey || process.env.LM_STUDIO_API_KEY || "";
+    const lmBaseUrl = config.baseUrl || process.env.LM_STUDIO_URL || "http://192.168.1.125:1235/v1";
+    const lmModel = config.modelId || process.env.LM_STUDIO_MODEL || "";
 
-  return anthropic("claude-sonnet-4-6");
-}
+    // Ensure the requested model is loaded in LM Studio before inference.
+    // The OpenAI-compat endpoint uses whatever is loaded — it doesn't auto-load.
+    // Check first to avoid creating duplicate instances (each load creates a new one).
+    if (lmModel) {
+      const nativeBase = lmBaseUrl.replace(/\/v1\/?$/, "");
+      const authHeaders: Record<string, string> = {};
+      if (lmApiKey) authHeaders.Authorization = `Bearer ${lmApiKey}`;
+      try {
+        // Check if model is already loaded via OpenAI-compat endpoint
+        const listRes = await fetch(`${lmBaseUrl}/models`, {
+          headers: authHeaders,
+          signal: AbortSignal.timeout(5000),
+        });
+        const listData = listRes.ok ? await listRes.json() : { data: [] };
+        const loadedIds = (listData.data ?? []).map((m: { id: string }) => m.id);
+        const isLoaded = loadedIds.includes(lmModel);
 
-/**
- * Get a model with runtime override (from request body).
- */
-export function getModelWithOverride(
-  provider?: string,
-  modelId?: string,
-): LanguageModel {
-  const settings = getSettings();
-  const effectiveProvider = provider || settings.llmProvider;
+        if (!isLoaded) {
+          console.log(`[lm-studio] Model ${lmModel} not loaded (loaded: ${loadedIds.join(", ")}), loading...`);
+          const loadRes = await fetch(`${nativeBase}/api/v1/models/load`, {
+            method: "POST",
+            headers: { ...authHeaders, "Content-Type": "application/json" },
+            body: JSON.stringify({ model: lmModel }),
+            signal: AbortSignal.timeout(120_000),
+          });
+          if (loadRes.ok) {
+            console.log(`[lm-studio] Model ${lmModel} loaded successfully`);
+          } else {
+            const err = await loadRes.text().catch(() => "");
+            console.warn(`[lm-studio] Model load failed (${loadRes.status}): ${err.slice(0, 200)}`);
+          }
+        } else {
+          console.log(`[lm-studio] Model ${lmModel} already loaded`);
+        }
+      } catch (e) {
+        console.warn(`[lm-studio] Could not check/load model ${lmModel}:`, e instanceof Error ? e.message : e);
+      }
+    }
 
-  if (effectiveProvider === "claude" && modelId) {
-    return anthropic(modelId);
-  }
-
-  if (effectiveProvider === "gemini" && modelId) {
-    return google(modelId);
-  }
-
-  if (effectiveProvider === "openrouter" && modelId) {
-    const openrouter = createOpenRouter({
-      apiKey: settings.openrouterApiKey || process.env.OPENROUTER_API_KEY || "",
+    const lmstudio = createOpenAICompatible({
+      name: "lmstudio",
+      baseURL: lmBaseUrl,
+      headers: lmApiKey ? { Authorization: `Bearer ${lmApiKey}` } : {},
+      fetch: lmStudioFetch,
     });
-    return openrouter(modelId);
+    return lmstudio(lmModel);
   }
 
-  if (effectiveProvider === "lm-studio" && modelId) {
-    return createLMStudioProvider()(modelId);
+  if (provider === "ollama") {
+    const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
+    const ollama = createOpenAICompatible({
+      name: "ollama",
+      baseURL: (config.baseUrl || "http://localhost:11434") + "/v1",
+      fetch: ollamaFetch,
+    });
+    return ollama(config.modelId || "");
   }
 
-  return getModel();
+  if (provider === "zai") {
+    const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
+    const zai = createOpenAICompatible({
+      name: "zai",
+      baseURL: config.baseUrl || "https://api.z.ai/api/coding/paas/v4",
+      headers: { Authorization: `Bearer ${config.apiKey || ""}` },
+    });
+    return zai(config.modelId || "glm-4.7");
+  }
+
+  // Fallback: Claude with no explicit key (will use ANTHROPIC_API_KEY env if set)
+  const { createAnthropic } = await import("@ai-sdk/anthropic");
+  const anthropic = createAnthropic({ apiKey: config.apiKey || undefined });
+  return anthropic(config.modelId || "claude-sonnet-4-6");
 }
 
 /** Whether the given provider natively supports Zod structured output */
-export function supportsStructuredOutput(provider?: string): boolean {
-  const p = provider || getSettings().llmProvider;
-  // Claude, Gemini, and most OpenRouter models support structured output
-  return p === "claude" || p === "gemini";
-  // OpenRouter and LM Studio use the JSON fallback
+export function supportsStructuredOutput(provider?: string, modelId?: string): boolean {
+  if (!provider) return true;
+  if (provider === "claude" || provider === "gemini") return true;
+  // OpenRouter proxying Claude/Gemini models supports structured output
+  if (provider === "openrouter" && modelId) {
+    return modelId.startsWith("anthropic/") || modelId.startsWith("google/");
+  }
+  return false;
 }
 
-/**
- * Get recommended inference parameters for local LM Studio models.
- * These optimize for structured JSON output quality and speed.
- */
-export function getLMStudioInferenceParams(): Record<string, unknown> {
-  return {
-    temperature: 0.3,        // Lower = more consistent JSON structure
-    max_tokens: 8192,        // Enough for full multi-track patterns
-    top_p: 0.9,
-    repetition_penalty: 1.05, // Prevent repetitive patterns
-  };
-}

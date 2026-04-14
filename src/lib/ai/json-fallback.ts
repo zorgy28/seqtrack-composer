@@ -1,3 +1,7 @@
+// This module handles raw LLM JSON output where shapes are unknown until runtime.
+// The 'any' types in extraction/normalization functions are intentional —
+// Zod schema validation provides the type safety boundary.
+
 import { generateText, Output } from "ai";
 import type { LanguageModel } from "ai";
 import type { ZodType } from "zod";
@@ -13,8 +17,9 @@ export async function generateWithFallback<T>(options: {
   prompt: string;
   supportsStructuredOutput: boolean;
   maxOutputTokens?: number;
+  temperature?: number;
 }): Promise<T> {
-  const { model, schema, system, prompt, supportsStructuredOutput: structured, maxOutputTokens = 16384 } = options;
+  const { model, schema, system, prompt, supportsStructuredOutput: structured, maxOutputTokens = 16384, temperature } = options;
 
   if (structured) {
     // Use native structured output (Claude supports this)
@@ -24,13 +29,14 @@ export async function generateWithFallback<T>(options: {
       system,
       prompt,
       maxOutputTokens,
+      ...(temperature != null && { temperature }),
     });
     if (!output) throw new Error("No output generated");
     return output;
   }
 
   // Fallback: ask for JSON in the prompt, parse manually
-  const jsonInstruction = "\n\nIMPORTANT: You MUST respond with ONLY valid JSON. No markdown, no explanation, just the JSON object. The JSON must be parseable by JSON.parse().";
+  const jsonInstruction = "\n\nIMPORTANT: You MUST respond with ONLY valid JSON. No markdown, no explanation, just the JSON object. The JSON must be parseable by JSON.parse(). Every note MUST include ALL 5 fields: {\"pitch\":60,\"velocity\":100,\"step\":0,\"duration\":1,\"probability\":100}. Do NOT omit any field.";
   const thinkingDisable = "\n\nDo NOT use <think> tags or internal reasoning. Respond directly with the JSON.";
 
   const { text } = await generateText({
@@ -38,18 +44,89 @@ export async function generateWithFallback<T>(options: {
     system: system + jsonInstruction + thinkingDisable,
     prompt,
     maxOutputTokens,
+    ...(temperature != null && { temperature }),
   });
 
   return extractAndValidateJSON(text, schema);
 }
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/**
+ * In-place fix common issues from small local models:
+ * - Missing note fields (pitch, probability, velocity, duration)
+ * - soundPreset as string instead of object
+ * - Missing description/suggestions at top level
+ */
+function fillMissingNoteDefaults(obj: Record<string, unknown>): void {
+  // Top-level defaults
+  if (!obj.description) obj.description = "";
+  if (!Array.isArray(obj.suggestions)) obj.suggestions = [];
+
+  const tracks = obj.tracks;
+  if (!Array.isArray(tracks)) return;
+  for (const track of tracks as any[]) {
+    if (!track || typeof track !== "object") continue;
+    const ch = Number(track.channel ?? 0);
+    const isDrum = ch >= 1 && ch <= 7;
+
+    // Fix soundPreset: string/number/null → object or delete
+    if (typeof track.soundPreset === "string") {
+      track.soundPreset = { id: 0, name: track.soundPreset, category: "Other" };
+    } else if (typeof track.soundPreset === "number") {
+      track.soundPreset = { id: track.soundPreset, name: "Preset", category: "Other" };
+    } else if (track.soundPreset === null || track.soundPreset === undefined) {
+      delete track.soundPreset;
+    } else if (track.soundPreset && typeof track.soundPreset === "object") {
+      if (track.soundPreset.id == null) track.soundPreset.id = 0;
+      if (!track.soundPreset.name) track.soundPreset.name = "Default";
+      if (!track.soundPreset.category) track.soundPreset.category = "Other";
+    }
+
+    // Fix soundDesign/matrixRouting: null → delete (schema expects array | undefined)
+    if (track.soundDesign === null) delete track.soundDesign;
+    if (track.matrixRouting === null) delete track.matrixRouting;
+
+    // Ensure patterns is an array
+    if (track.patterns && !Array.isArray(track.patterns)) {
+      track.patterns = [track.patterns];
+    }
+    if (!track.patterns) track.patterns = [];
+
+    const patterns = track.patterns;
+    if (!Array.isArray(patterns)) continue;
+    for (const p of patterns) {
+      if (!p || typeof p !== "object") continue;
+      if (!p.name) p.name = "Pattern 1";
+      if (p.swing == null) p.swing = 0;
+      // Infer bars from highest step if missing
+      if (p.bars == null && Array.isArray(p.notes) && p.notes.length > 0) {
+        const maxStep = Math.max(...p.notes.map((n: any) => Number(n.step ?? 0)));
+        p.bars = Math.max(1, Math.ceil((maxStep + 1) / 16));
+      }
+      if (p.bars == null) p.bars = 1;
+      if (!Array.isArray(p.notes)) p.notes = [];
+      for (const n of p.notes) {
+        if (n.pitch == null) n.pitch = isDrum ? 60 : 60;
+        if (n.velocity == null) n.velocity = 100;
+        if (n.duration == null) n.duration = 1;
+        if (n.probability == null) n.probability = 100;
+      }
+    }
+  }
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 /**
  * Extract JSON from a text response and validate against a Zod schema.
  * Tries multiple extraction strategies.
  */
 function extractAndValidateJSON<T>(text: string, schema: ZodType<T>): T {
-  // Strip Qwen3-style <think>...</think> blocks that precede the actual JSON
-  const cleaned = text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+  // Strip reasoning/thinking blocks from various models (Qwen3, DeepSeek R1, etc.)
+  const cleaned = text
+    .replace(/<think>[\s\S]*?<\/think>/g, "")
+    .replace(/<\|thinking\|>[\s\S]*?<\|\/thinking\|>/g, "")
+    .replace(/<reasoning>[\s\S]*?<\/reasoning>/g, "")
+    .trim();
   // Use cleaned text for all extraction strategies
   const effectiveText = cleaned || text;
 
@@ -68,11 +145,20 @@ function extractAndValidateJSON<T>(text: string, schema: ZodType<T>): T {
       if (!match) throw new Error("No code fence found");
       return JSON.parse(match[1]);
     },
-    // Strategy 4: Find first { ... } block (greedy)
+    // Strategy 4: Find first { ... } block with balanced braces
     () => {
       const start = effectiveText.indexOf("{");
-      const end = effectiveText.lastIndexOf("}");
-      if (start === -1 || end === -1 || end <= start) throw new Error("No JSON object found");
+      if (start === -1) throw new Error("No JSON object found");
+      let depth = 0;
+      let end = -1;
+      for (let i = start; i < effectiveText.length; i++) {
+        if (effectiveText[i] === "{") depth++;
+        else if (effectiveText[i] === "}") {
+          depth--;
+          if (depth === 0) { end = i; break; }
+        }
+      }
+      if (end === -1) throw new Error("No balanced JSON object found");
       return JSON.parse(effectiveText.slice(start, end + 1));
     },
   ];
@@ -91,6 +177,13 @@ function extractAndValidateJSON<T>(text: string, schema: ZodType<T>): T {
     const result = schema.safeParse(parsed);
     if (result.success) return result.data;
 
+    // 2. Pre-normalize: fill missing defaults (pattern name/bars/swing, note fields, soundPreset)
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      fillMissingNoteDefaults(parsed as Record<string, unknown>);
+      const retry = schema.safeParse(parsed);
+      if (retry.success) return retry.data;
+    }
+
     if ("error" in result) {
       lastZodError = result.error.issues
         .slice(0, 3)
@@ -98,7 +191,7 @@ function extractAndValidateJSON<T>(text: string, schema: ZodType<T>): T {
         .join("; ");
     }
 
-    // 2. Try normalizing (handles different field names, missing fields, etc.)
+    // 3. Try normalizing (handles different field names, missing fields, etc.)
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       const coerced = tryCoerceToSchema(parsed as Record<string, unknown>, schema);
       if (coerced) return coerced;
@@ -192,12 +285,16 @@ function normalizeCommonIssues(parsed: Record<string, unknown>): Record<string, 
           track.patterns = [];
         }
 
-        // Deep-fix: coerce note fields to numbers
+        // Deep-fix: coerce note fields to numbers + fill missing defaults
+        // Small local models often omit pitch (always 60 for drums) and probability (default 100)
+        const isDrum = !isNaN(channelNum) && channelNum >= 1 && channelNum <= 7;
         if (Array.isArray(track.patterns)) {
           for (const p of track.patterns) {
             if (p && typeof p === "object") {
               if (typeof p.bars === "string") p.bars = Number(p.bars) || 1;
               if (typeof p.swing === "string") p.swing = Number(p.swing) || 0;
+              if (p.bars == null) p.bars = 1;
+              if (p.swing == null) p.swing = 0;
               if (Array.isArray(p.notes)) {
                 for (const n of p.notes) {
                   if (typeof n.pitch === "string") n.pitch = Number(n.pitch);
@@ -205,6 +302,11 @@ function normalizeCommonIssues(parsed: Record<string, unknown>): Record<string, 
                   if (typeof n.step === "string") n.step = Number(n.step);
                   if (typeof n.duration === "string") n.duration = Number(n.duration);
                   if (typeof n.probability === "string") n.probability = Number(n.probability);
+                  // Fill missing fields with sensible defaults
+                  if (n.pitch == null) n.pitch = isDrum ? 60 : 60;
+                  if (n.velocity == null) n.velocity = 100;
+                  if (n.duration == null) n.duration = 1;
+                  if (n.probability == null) n.probability = 100;
                 }
               }
             }
@@ -221,6 +323,36 @@ function normalizeCommonIssues(parsed: Record<string, unknown>): Record<string, 
 
     if (tracksArray.length > 0) {
       result.tracks = tracksArray;
+    }
+  }
+
+  // Fix notes in tracks that are already an array
+  if (Array.isArray(result.tracks)) {
+    for (const track of result.tracks as any[]) {
+      if (!track || typeof track !== "object") continue;
+      const ch = Number(track.channel ?? 0);
+      const isDrumCh = ch >= 1 && ch <= 7;
+      if (Array.isArray(track.patterns)) {
+        for (const p of track.patterns) {
+          if (p && typeof p === "object") {
+            if (p.bars == null) p.bars = 1;
+            if (p.swing == null) p.swing = 0;
+            if (Array.isArray(p.notes)) {
+              for (const n of p.notes) {
+                if (n.pitch == null) n.pitch = isDrumCh ? 60 : 60;
+                if (n.velocity == null) n.velocity = 100;
+                if (n.duration == null) n.duration = 1;
+                if (n.probability == null) n.probability = 100;
+                if (typeof n.pitch === "string") n.pitch = Number(n.pitch);
+                if (typeof n.velocity === "string") n.velocity = Number(n.velocity);
+                if (typeof n.step === "string") n.step = Number(n.step);
+                if (typeof n.duration === "string") n.duration = Number(n.duration);
+                if (typeof n.probability === "string") n.probability = Number(n.probability);
+              }
+            }
+          }
+        }
+      }
     }
   }
 

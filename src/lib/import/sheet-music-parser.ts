@@ -1,4 +1,5 @@
 import type { ImportResult } from "./types";
+import { getSettings, buildProviderConfig, buildDoclingConfig } from "@/lib/settings";
 
 /**
  * Parse sheet music from PDF, image, or MusicXML files.
@@ -9,18 +10,23 @@ export async function parseSheetMusic(
   options?: {
     instrument?: string;
     targetChannel?: number;
-    modelProvider?: string;
-    modelId?: string;
   },
 ): Promise<ImportResult> {
+  const settings = getSettings();
+  const pc = buildProviderConfig(settings);
+  const dc = buildDoclingConfig(settings);
+
   const formData = new FormData();
   formData.append("file", file);
   if (options?.instrument) formData.append("instrument", options.instrument);
   if (options?.targetChannel)
     formData.append("targetChannel", String(options.targetChannel));
-  if (options?.modelProvider)
-    formData.append("modelProvider", options.modelProvider);
-  if (options?.modelId) formData.append("modelId", options.modelId);
+  formData.append("provider", pc.provider);
+  if (pc.modelId) formData.append("modelId", pc.modelId);
+  if (pc.apiKey) formData.append("apiKey", pc.apiKey);
+  if (pc.baseUrl) formData.append("baseUrl", pc.baseUrl);
+  if (dc.url) formData.append("doclingUrl", dc.url);
+  if (dc.apiKey) formData.append("doclingApiKey", dc.apiKey);
 
   const res = await fetch("/api/import-sheet", {
     method: "POST",

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useProject } from "@/providers/project-provider";
+import { useTransport } from "@/providers/transport-provider";
 import { BPM_MIN, BPM_MAX } from "@/lib/midi/constants";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,7 @@ import { Logo } from "@/components/ui/logo";
 
 export function AppHeader() {
   const { project, updateBpm } = useProject();
+  const { recordState } = useTransport();
   const [transcribeOpen, setTranscribeOpen] = useState(false);
 
   return (
@@ -22,6 +24,10 @@ export function AppHeader() {
         <span className="text-sm font-medium truncate max-w-[200px]">
           {project.name}
         </span>
+
+        {recordState === "recording" && (
+          <span className="size-2 rounded-full bg-red-500 animate-pulse" />
+        )}
 
         <div className="flex items-center gap-1.5">
           <label className="text-xs text-muted-foreground">BPM</label>

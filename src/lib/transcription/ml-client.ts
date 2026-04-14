@@ -1,7 +1,7 @@
 import type { MLServiceStatus } from "./types";
 
 const ML_SERVICE_URL =
-  process.env.ML_SERVICE_URL || "http://localhost:8100";
+  process.env.ML_SERVICE_URL || "http://localhost:8200";
 
 /** Default timeout for HTTP requests (30 seconds). */
 const REQUEST_TIMEOUT_MS = 30_000;

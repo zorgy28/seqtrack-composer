@@ -17,6 +17,7 @@ import {
   getEntryById,
   type TranscriptionHistoryEntry,
 } from "@/lib/transcription/history";
+import { getSettings, buildProviderConfig } from "@/lib/settings";
 
 export interface AudioAnalysisInfo {
   bpm: number;
@@ -36,10 +37,6 @@ export interface UseTranscriptionReturn {
   isUrlSource: boolean;
   bars: number;
   setBars: (bars: number) => void;
-  modelProvider: string;
-  modelId: string;
-  setModelProvider: (provider: string) => void;
-  setModelId: (model: string) => void;
   startFromFile: (file: File) => void;
   startFromUrl: (url: string) => void;
   toggleStem: (stemName: string) => void;
@@ -50,6 +47,7 @@ export interface UseTranscriptionReturn {
 }
 
 const POLL_INTERVAL_MS = 2000;
+const MAX_POLL_RETRIES = 150; // 5 minutes at 2s intervals
 
 /**
  * Transform the Claude AI transcription result into the component-level
@@ -115,8 +113,6 @@ export function useTranscription(): UseTranscriptionReturn {
   const [error, setError] = useState<string | null>(null);
   const [isUrlSource, setIsUrlSource] = useState(false);
   const [bars, setBars] = useState(4);
-  const [modelProvider, setModelProvider] = useState("claude");
-  const [modelId, setModelId] = useState("claude-sonnet-4");
   const [history, setHistory] = useState<TranscriptionHistoryEntry[]>(() =>
     typeof window !== "undefined" ? getHistory() : []
   );
@@ -136,8 +132,18 @@ export function useTranscription(): UseTranscriptionReturn {
   // ---- Polling ----
 
   const poll = useCallback(
-    async (jobId: string): Promise<MLServiceStatus["result"]> => {
-      const res = await fetch(`/api/transcribe/status/${jobId}`);
+    async (jobId: string, retries = 0): Promise<MLServiceStatus["result"]> => {
+      if (abortRef.current?.signal.aborted) {
+        throw new DOMException("Polling aborted", "AbortError");
+      }
+
+      if (retries >= MAX_POLL_RETRIES) {
+        throw new Error("Transcription timed out after 5 minutes of polling");
+      }
+
+      const res = await fetch(`/api/transcribe/status/${jobId}`, {
+        signal: abortRef.current?.signal,
+      });
       if (!res.ok) {
         const text = await res.text().catch(() => "(no body)");
         throw new Error(`Status check failed (${res.status}): ${text}`);
@@ -168,7 +174,7 @@ export function useTranscription(): UseTranscriptionReturn {
 
       // Continue polling
       await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-      return poll(jobId);
+      return poll(jobId, retries + 1);
     },
     [],
   );
@@ -184,6 +190,7 @@ export function useTranscription(): UseTranscriptionReturn {
       setStage("generating");
       setProgress(90);
 
+      const settings = getSettings();
       const res = await fetch("/api/transcribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -193,8 +200,7 @@ export function useTranscription(): UseTranscriptionReturn {
           analysis: audioAnalysis,
           enabledStems: activeStems,
           bars,
-          modelProvider,
-          modelId,
+          providerConfig: buildProviderConfig(settings),
         }),
       });
 
@@ -205,7 +211,7 @@ export function useTranscription(): UseTranscriptionReturn {
 
       return res.json() as Promise<TranscriptionResult>;
     },
-    [bars, modelProvider, modelId],
+    [bars],
   );
 
   // ---- Main pipeline ----
@@ -407,10 +413,6 @@ export function useTranscription(): UseTranscriptionReturn {
     isUrlSource,
     bars,
     setBars,
-    modelProvider,
-    modelId,
-    setModelProvider,
-    setModelId,
     startFromFile,
     startFromUrl,
     toggleStem,

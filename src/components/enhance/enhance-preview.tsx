@@ -3,25 +3,9 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { SEQTRAK_TRACKS, STEPS_PER_BAR } from "@/lib/midi/constants";
+import { SEQTRAK_TRACKS, STEPS_PER_BAR, getTrackSolidClass } from "@/lib/midi/constants";
 import type { SeqtrackChannel } from "@/lib/midi/types";
 import type { EnhanceResult } from "@/hooks/use-enhance";
-
-// ── Track Colors ─────────────────────────────────────────────────
-
-const TRACK_COLORS: Record<number, string> = {
-  1: "bg-red-500",
-  2: "bg-yellow-500",
-  3: "bg-fuchsia-500",
-  4: "bg-cyan-500",
-  5: "bg-blue-500",
-  6: "bg-green-500",
-  7: "bg-slate-500",
-  8: "bg-purple-500",
-  9: "bg-teal-500",
-  10: "bg-amber-500",
-  11: "bg-emerald-500",
-};
 
 // ── Mini Step Grid ───────────────────────────────────────────────
 
@@ -51,7 +35,7 @@ function MiniStepGrid({ notes, bars, channel }: {
               "rounded-[1px]",
               isBarBoundary && "ml-px",
               noteSteps.has(step)
-                ? TRACK_COLORS[channel]
+                ? getTrackSolidClass(channel as SeqtrackChannel)
                 : "bg-foreground/5",
             )}
           />
@@ -101,7 +85,7 @@ export function EnhancePreview({
                 <span
                   className={cn(
                     "size-2 shrink-0 rounded-full",
-                    TRACK_COLORS[ch],
+                    getTrackSolidClass(ch),
                   )}
                 />
                 <span className="text-xs font-medium truncate">

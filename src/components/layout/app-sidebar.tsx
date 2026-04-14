@@ -5,14 +5,23 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/ui/logo";
 
-const NAV_ITEMS = [
-  { href: "/compose", label: "Compose", icon: "AI" },
-  { href: "/editor", label: "Editor", icon: "[]" },
-  { href: "/sounds", label: "Sounds", icon: "~*" },
-  { href: "/perform", label: "Perform", icon: "##" },
-  { href: "/device", label: "Device", icon: "->" },
-  { href: "/projects", label: "Projects", icon: "/." },
-  { href: "/settings", label: "Settings", icon: "\u2699" },
+interface NavItem {
+  href: string;
+  label: string;
+  icon: string;
+  title: string;
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { href: "/compose", label: "Compose", icon: "AI", title: "AI-powered pattern generation" },
+  { href: "/editor", label: "Editor", icon: "[]", title: "Visual step sequencer" },
+  { href: "/sounds", label: "Sounds", icon: "~*", title: "Browse and manage presets" },
+  { href: "/perform", label: "Perform", icon: "##", title: "Hand tracking FX control" },
+  { href: "/sessions", label: "Sessions", icon: "\u23FA", title: "Recording and playback" },
+  { href: "/device", label: "Device", icon: "->", title: "MIDI connection management" },
+  { href: "/projects", label: "Projects", icon: "/.", title: "Save, load, and export" },
+  { href: "/settings", label: "Settings", icon: "\u2699", title: "App configuration" },
+  { href: "/docs", label: "Docs", icon: "??", title: "User manual and help" },
 ];
 
 export function AppSidebar() {
@@ -30,6 +39,7 @@ export function AppSidebar() {
         <Link
           key={item.href}
           href={item.href}
+          title={item.title}
           className={cn(
             "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
             pathname === item.href

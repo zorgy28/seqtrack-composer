@@ -1,4 +1,7 @@
 import type { SoundPreset, SoundCategory, SoundEngine, SeqtrackChannel } from "./types";
+
+// Use inline shape to avoid circular dependency with @/lib/devices/types
+type ProfileLike = { tracks?: Array<{ channel: number }>; sounds?: { getPresetsForTrack: (i: number) => SoundPreset[] } };
 import { loadScannedPresets } from "./sound-scanner";
 import { COMPLETE_PRESETS } from "./sound-data-complete";
 
@@ -25,6 +28,29 @@ export const ALL_PRESETS: SoundPreset[] = COMPLETE_PRESETS;
 let _cachedComplete: SoundPreset[] | null = null;
 
 /**
+ * O(1) lookup map: "${bankMSB}-${bankLSB}-${programNumber}" → SoundPreset.
+ * Rebuilt lazily whenever the preset list changes.
+ */
+let _presetLookup: Map<string, SoundPreset> | null = null;
+
+/** O(1) lookup by preset numeric ID. Lazily built on first call. */
+let _idLookup: Map<number, SoundPreset> | null = null;
+
+function buildPresetKey(bankMSB: number, bankLSB: number, programNumber: number): string {
+  return `${bankMSB}-${bankLSB}-${programNumber}`;
+}
+
+function getPresetLookup(): Map<string, SoundPreset> {
+  if (_presetLookup) return _presetLookup;
+  const map = new Map<string, SoundPreset>();
+  for (const p of getAllPresets()) {
+    map.set(buildPresetKey(p.bankMSB, p.bankLSB, p.programNumber), p);
+  }
+  _presetLookup = map;
+  return map;
+}
+
+/**
  * Get all presets, preferring scanned data over built-in defaults.
  * Returns the complete scanned library if available (>100 presets),
  * otherwise falls back to the built-in ALL_PRESETS.
@@ -42,6 +68,8 @@ export function getAllPresets(): SoundPreset[] {
 /** Invalidate the cached scanned presets (call after a new scan) */
 export function invalidatePresetCache(): void {
   _cachedComplete = null;
+  _presetLookup = null;
+  _idLookup = null;
 }
 
 // ─── Query Functions ────────────────────────────────────────────
@@ -56,8 +84,19 @@ export function getPresetsByCategory(category: SoundCategory): SoundPreset[] {
   return getAllPresets().filter((p) => p.category === category);
 }
 
-/** Get presets compatible with a specific channel */
-export function getPresetsForChannel(channel: SeqtrackChannel): SoundPreset[] {
+/**
+ * Get presets compatible with a specific channel.
+ * When a ProfileLike is provided, delegates to its sound library.
+ * Otherwise uses SEQTRAK-specific channel-to-engine mapping.
+ */
+export function getPresetsForChannel(channel: SeqtrackChannel, profile?: ProfileLike): SoundPreset[] {
+  if (profile?.tracks && profile.sounds) {
+    const trackIndex = profile.tracks.findIndex(t => t.channel === channel);
+    if (trackIndex >= 0) return profile.sounds.getPresetsForTrack(trackIndex);
+    return [];
+  }
+
+  // SEQTRAK default mapping
   if (channel >= 1 && channel <= 7) return getPresetsByEngine("drum");
   if (channel === 8 || channel === 9) return getPresetsByEngine("awm2");
   if (channel === 10) return getPresetsByEngine("dx");
@@ -96,8 +135,18 @@ export function findPresetByBankPC(
   bankLSB: number,
   programNumber: number,
 ): SoundPreset | null {
-  const presets = getAllPresets();
-  return presets.find(
-    (p) => p.bankMSB === bankMSB && p.bankLSB === bankLSB && p.programNumber === programNumber,
-  ) ?? null;
+  return getPresetLookup().get(buildPresetKey(bankMSB, bankLSB, programNumber)) ?? null;
+}
+
+function getIdLookup(): Map<number, SoundPreset> {
+  if (_idLookup) return _idLookup;
+  const map = new Map<number, SoundPreset>();
+  for (const p of getAllPresets()) map.set(p.id, p);
+  _idLookup = map;
+  return map;
+}
+
+/** Find a preset by its numeric ID (1-2032 for sounds, 1-392 for sampler) */
+export function findPresetById(id: number): SoundPreset | null {
+  return getIdLookup().get(id) ?? null;
 }

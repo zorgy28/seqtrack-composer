@@ -2,11 +2,13 @@
 
 import { useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { getSettings } from "@/lib/settings";
+import { getSettings, buildProviderConfig, updateSettings } from "@/lib/settings";
 import { useProject } from "@/providers/project-provider";
+import { useDeviceProfile } from "@/providers/device-provider";
 import { useMidiConnection } from "@/hooks/use-midi-connection";
 import { useSoundControl } from "@/hooks/use-sound-control";
 import { useCompose } from "@/hooks/use-compose";
+import type { DeviceId } from "@/lib/devices/types";
 import { getAllPresets } from "@/lib/midi/sound-library";
 import type { SeqtrackChannel } from "@/lib/midi/types";
 import { Button } from "@/components/ui/button";
@@ -20,8 +22,9 @@ import { ComposeHistory } from "@/components/compose/compose-history";
 export default function ComposePage() {
   const router = useRouter();
   const { project, setProject, updateBpm } = useProject();
+  const { profile, setProfileById } = useDeviceProfile();
   const { device } = useMidiConnection();
-  const { selectPreset } = useSoundControl();
+  const { selectPreset, setCC } = useSoundControl();
   const {
     stage,
     result,
@@ -44,9 +47,14 @@ export default function ComposePage() {
       case "gemini":     return s.geminiModel     || "gemini-2.5-flash";
       case "openrouter": return s.openrouterModel || "anthropic/claude-sonnet-4.5";
       case "lm-studio":  return s.lmStudioModel   || "";
+      case "ollama":     return s.ollamaModel     || "";
+      case "zai":        return s.zaiModel        || "glm-4.7";
       default:           return s.claudeModel     || "claude-sonnet-4-6";
     }
   });
+  const projectRef = useRef(project);
+  projectRef.current = project;
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentStep, setCurrentStep] = useState<number | null>(null);
   const [isEnhancing, setIsEnhancing] = useState(false);
@@ -69,6 +77,7 @@ export default function ComposePage() {
     if (!prompt.trim() || isEnhancing) return;
     setIsEnhancing(true);
     try {
+      const settings = getSettings();
       const res = await fetch("/api/enhance-prompt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -78,8 +87,8 @@ export default function ComposePage() {
           scaleRoot: project.scaleRoot,
           scaleName: project.scaleName,
           bars,
-          modelProvider,
-          modelId,
+          providerConfig: buildProviderConfig(settings),
+          deviceId: profile.id,
         }),
       });
       if (res.ok) {
@@ -91,7 +100,7 @@ export default function ComposePage() {
     } finally {
       setIsEnhancing(false);
     }
-  }, [prompt, project.bpm, project.scaleRoot, project.scaleName, bars, modelProvider, modelId, isEnhancing]);
+  }, [prompt, project.bpm, project.scaleRoot, project.scaleName, bars, isEnhancing, profile.id]);
 
   // ── Generate ────────────────────────────────────────────────────
 
@@ -108,11 +117,9 @@ export default function ComposePage() {
         scaleName: project.scaleName,
         bars,
         swing,
-        modelProvider,
-        modelId,
       });
     },
-    [prompt, project.bpm, project.scaleRoot, project.scaleName, bars, swing, modelProvider, modelId, stopPreview, generate],
+    [prompt, project.bpm, project.scaleRoot, project.scaleName, bars, swing, stopPreview, generate],
   );
 
   // ── Preview (toggle play/stop) ─────────────────────────────────
@@ -173,6 +180,16 @@ export default function ComposePage() {
         const full = getAllPresets().find((p) => p.id === t.soundPreset!.id);
         if (full) void selectPreset(ch, full);
       }
+
+      // Apply sound design CC parameters to the device
+      if (t.soundDesign && device) {
+        t.soundDesign.forEach((param, i) => {
+          // Stagger CCs by 15ms to avoid MIDI buffer overflow
+          setTimeout(() => {
+            void setCC(ch, param.cc, param.value);
+          }, (i + 1) * 15);
+        });
+      }
     }
 
     const updated = {
@@ -182,7 +199,7 @@ export default function ComposePage() {
       updatedAt: new Date().toISOString(),
     };
     setProject(updated);
-  }, [result, project, swing, stopPreview, setProject, selectPreset]);
+  }, [result, project, swing, stopPreview, setProject, selectPreset, setCC, device]);
 
   // ── Apply & Edit ──────────────────────────────────────────────
 
@@ -195,16 +212,16 @@ export default function ComposePage() {
 
   const handleScaleRootChange = useCallback(
     (root: string) => {
-      setProject({ ...project, scaleRoot: root });
+      setProject({ ...projectRef.current, scaleRoot: root });
     },
-    [project, setProject],
+    [setProject],
   );
 
   const handleScaleNameChange = useCallback(
     (name: string) => {
-      setProject({ ...project, scaleName: name });
+      setProject({ ...projectRef.current, scaleName: name });
     },
-    [project, setProject],
+    [setProject],
   );
 
   // ── Stable callbacks for child components ───────────────────────
@@ -212,7 +229,22 @@ export default function ComposePage() {
   const handleModelChange = useCallback((p: string, m: string) => {
     setModelProvider(p);
     setModelId(m);
+    // Sync selection to settings so hooks pick it up via buildProviderConfig()
+    const partial: Record<string, string> = { llmProvider: p };
+    switch (p) {
+      case "claude":      partial.claudeModel = m; break;
+      case "gemini":      partial.geminiModel = m; break;
+      case "openrouter":  partial.openrouterModel = m; break;
+      case "lm-studio":   partial.lmStudioModel = m; break;
+      case "ollama":      partial.ollamaModel = m; break;
+      case "zai":         partial.zaiModel = m; break;
+    }
+    updateSettings(partial);
   }, []);
+
+  const handleDeviceChange = useCallback((id: string) => {
+    setProfileById(id as DeviceId);
+  }, [setProfileById]);
 
   const handlePresetSelect = useCallback((p: string) => {
     setPrompt((prev) => prev.trim() ? `${prev.trim()}, ${p}` : p);
@@ -240,11 +272,14 @@ export default function ComposePage() {
           modelProvider={modelProvider}
           modelId={modelId}
           onModelChange={handleModelChange}
+          deviceId={profile.id}
+          onDeviceChange={handleDeviceChange}
           disabled={isLoading}
         />
 
         {/* Presets */}
         <ComposePresets
+          deviceId={profile.id}
           onSelect={handlePresetSelect}
           disabled={isLoading}
         />
@@ -265,6 +300,7 @@ export default function ComposePage() {
             <Button
               onClick={() => handleGenerate()}
               disabled={isLoading || !prompt.trim()}
+              title="Generate patterns from your prompt (Cmd+Enter)"
             >
               {isLoading ? (
                 <>

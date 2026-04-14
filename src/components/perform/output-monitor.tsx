@@ -5,7 +5,12 @@ import { CC_PARAMS } from "@/lib/midi/cc-map";
 import { SEQTRAK_TRACKS } from "@/lib/midi/constants";
 import { GESTURE_AXIS_LABELS } from "@/lib/handtracking/types";
 import type { CCOutput } from "@/lib/handtracking/types";
-import type { SeqtrackChannel } from "@/lib/midi/types";
+import type { CCParameter, SeqtrackChannel } from "@/lib/midi/types";
+import { useDeviceProfile } from "@/providers/device-provider";
+
+const CC_PARAMS_MAP: Map<number, CCParameter> = new Map(
+  CC_PARAMS.map((p) => [p.cc, p]),
+);
 
 interface OutputMonitorProps {
   ccOutputs: CCOutput[];
@@ -13,6 +18,8 @@ interface OutputMonitorProps {
 }
 
 export function OutputMonitor({ ccOutputs, isTracking }: OutputMonitorProps) {
+  const { profile } = useDeviceProfile();
+
   if (ccOutputs.length === 0) {
     return (
       <div className="text-xs text-muted-foreground text-center py-3">
@@ -26,9 +33,11 @@ export function OutputMonitor({ ccOutputs, isTracking }: OutputMonitorProps) {
   return (
     <div className="flex flex-wrap gap-2">
       {ccOutputs.map((output) => {
-        const ccParam = CC_PARAMS.find((p) => p.cc === output.mapping.cc);
-        const track =
-          SEQTRAK_TRACKS[output.mapping.channel as SeqtrackChannel];
+        const ccParam = CC_PARAMS_MAP.get(output.mapping.cc)
+          ?? profile.ccParams.find(p => p.cc === output.mapping.cc);
+        const profileTrack = profile.tracks.find(t => t.channel === output.mapping.channel);
+        const track = profileTrack
+          ?? SEQTRAK_TRACKS[output.mapping.channel as SeqtrackChannel];
         const axisLabel =
           GESTURE_AXIS_LABELS[output.mapping.axis] ?? output.mapping.axis;
 

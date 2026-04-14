@@ -8,7 +8,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { MappingPreset } from "@/lib/handtracking/types";
-import { ALL_PRESETS } from "@/lib/handtracking/presets";
+import { getPresetsForDevice } from "@/lib/handtracking/presets";
+import { useDeviceProfile } from "@/providers/device-provider";
 
 interface MappingPresetSelectorProps {
   onLoadPreset: (preset: MappingPreset) => void;
@@ -19,11 +20,14 @@ export function MappingPresetSelector({
   onLoadPreset,
   currentPresetId,
 }: MappingPresetSelectorProps) {
+  const { profile } = useDeviceProfile();
+  const presets = getPresetsForDevice(profile.id);
+
   return (
     <Select
       value={currentPresetId ?? undefined}
       onValueChange={(value) => {
-        const preset = ALL_PRESETS.find((p) => p.id === value);
+        const preset = presets.find((p) => p.id === value);
         if (preset) onLoadPreset(preset);
       }}
     >
@@ -31,7 +35,7 @@ export function MappingPresetSelector({
         <SelectValue placeholder="Load a preset..." />
       </SelectTrigger>
       <SelectContent>
-        {ALL_PRESETS.map((preset) => (
+        {presets.map((preset) => (
           <SelectItem key={preset.id} value={preset.id}>
             <div className="flex flex-col">
               <span className="font-medium">{preset.name}</span>

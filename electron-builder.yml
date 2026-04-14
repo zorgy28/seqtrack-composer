@@ -1,0 +1,46 @@
+appId: com.taktik.seqtrack-composer
+productName: SeqTrack Composer
+copyright: Copyright 2024-2026
+
+directories:
+  output: release
+  buildResources: build-resources
+
+files:
+  - electron/**/*
+  - .next/**/*
+  - "!.next/dev"
+  - "!.next/cache"
+  - public/**/*
+  - node_modules/**/*
+  - package.json
+  - next.config.ts
+
+asar: true
+asarUnpack:
+  # WASM binaries cannot be loaded from inside an asar archive
+  - node_modules/@mediapipe/**/*
+
+mac:
+  category: public.app-category.music
+  icon: build-resources/icon.icns
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build-resources/entitlements.mac.plist
+  entitlementsInherit: build-resources/entitlements.mac.plist
+
+dmg:
+  artifactName: "${productName}-${version}-${arch}.dmg"
+  contents:
+    - x: 410
+      y: 150
+      type: link
+      path: /Applications
+    - x: 130
+      y: 150
+      type: file

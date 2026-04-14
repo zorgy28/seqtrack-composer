@@ -1,6 +1,6 @@
 export const maxDuration = 300; // 5 minutes for local LLM
 
-import { getModelWithOverride, supportsStructuredOutput } from "@/lib/ai/model-provider";
+import { getModelFromConfig, supportsStructuredOutput } from "@/lib/ai/model-provider";
 import { generateWithFallback } from "@/lib/ai/json-fallback";
 import { transcriptionResultSchema } from "@/lib/ai/transcription-schema";
 import {
@@ -10,6 +10,7 @@ import {
 import {
   startMLTranscription,
 } from "@/lib/transcription/ml-client";
+import type { ProviderConfig } from "@/lib/settings";
 
 export async function POST(request: Request) {
   try {
@@ -49,7 +50,7 @@ export async function POST(request: Request) {
 
     // Claude refinement step
     if (body.action === "refine") {
-      const { midiEvents, analysis, enabledStems, bars, midiAnalysis, modelProvider, modelId } = body;
+      const { providerConfig, midiEvents, analysis, enabledStems, bars, midiAnalysis } = body;
 
       if (!midiEvents || !analysis || !enabledStems) {
         return Response.json(
@@ -58,10 +59,12 @@ export async function POST(request: Request) {
         );
       }
 
-      console.log(`[transcribe/refine] provider=${modelProvider ?? "claude"} model=${modelId ?? "default"} bars=${bars ?? 4}`);
+      const config: ProviderConfig = providerConfig ?? { provider: "claude" };
+
+      console.log(`[transcribe/refine] provider=${config.provider} model=${config.modelId ?? "default"} bars=${bars ?? 4}`);
 
       const output = await generateWithFallback({
-        model: getModelWithOverride(modelProvider, modelId),
+        model: await getModelFromConfig(config),
         schema: transcriptionResultSchema,
         system: getTranscriptionSystemPrompt(),
         prompt: buildTranscriptionPrompt({
@@ -71,7 +74,8 @@ export async function POST(request: Request) {
           bars: bars ?? 4,
           midiAnalysis,
         }),
-        supportsStructuredOutput: supportsStructuredOutput(modelProvider),
+        supportsStructuredOutput: supportsStructuredOutput(config.provider, config.modelId),
+        temperature: config.temperature,
       });
 
       return Response.json(output);

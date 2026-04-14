@@ -1,38 +1,181 @@
-import type { ImportResult, ImportedNote } from "./types";
+import type { SeqtrackChannel } from "@/lib/midi/types";
+import type { ImportResult, ImportedNote, ImportTrackInfo } from "./types";
+import { gmProgramToPresetId, gmFamilyToChannel } from "./gm-to-seqtrack";
+
+// Inline type to avoid Turbopack circular deps
+type ProfileLike = { id?: string; drumChannels?: number[]; synthChannels?: number[]; architecture?: string };
 
 /**
  * Parse a Standard MIDI File (.mid / .smf) from an ArrayBuffer.
  *
  * Drum tracks (GM channel 10 = index 9) are mapped to SEQTRAK channels 1-7
  * using the GM drum note mapping. Melodic tracks are assigned to channels
- * 8-11 round-robin based on track index.
+ * 8-11 using instrument-aware logic (bass → Ch 8, lead → Ch 9, etc.).
  */
-export async function parseMidiFile(arrayBuffer: ArrayBuffer): Promise<ImportResult> {
+export async function parseMidiFile(arrayBuffer: ArrayBuffer, profile?: ProfileLike): Promise<ImportResult> {
   const { Midi } = await import("@tonejs/midi");
   const midi = new Midi(arrayBuffer);
+
+  // ---- 1. Gather per-track metadata ------------------------------------
+
+  interface TrackMeta {
+    trackIndex: number;
+    isDrum: boolean;
+    gmProgram: number;
+    gmFamily: string;
+    name: string;
+    noteCount: number;
+    pitchMin: number;
+    pitchMax: number;
+    preferredChannel: SeqtrackChannel;
+    originalChannel: number; // 0-indexed from @tonejs/midi
+  }
+
+  const trackMetas: TrackMeta[] = [];
+
+  for (let i = 0; i < midi.tracks.length; i++) {
+    const track = midi.tracks[i];
+    if (track.notes.length === 0) continue;
+
+    const isDrum = track.channel === 9; // @tonejs/midi uses 0-indexed; GM drums = 9
+    const gmProgram = track.instrument?.number ?? 0;
+    const gmFamily = track.instrument?.family ?? "";
+    const name = track.name || track.instrument?.name || `Track ${i + 1}`;
+
+    let pitchMin = 127;
+    let pitchMax = 0;
+    for (const note of track.notes) {
+      if (note.midi < pitchMin) pitchMin = note.midi;
+      if (note.midi > pitchMax) pitchMax = note.midi;
+    }
+
+    const preferredChannel: SeqtrackChannel = isDrum
+      ? (profile?.drumChannels?.[0] ?? 1) // placeholder — drums use per-note mapping
+      : gmFamilyToChannel(gmFamily, gmProgram, profile);
+
+    trackMetas.push({
+      trackIndex: i,
+      isDrum,
+      gmProgram,
+      gmFamily,
+      name,
+      noteCount: track.notes.length,
+      pitchMin,
+      pitchMax,
+      preferredChannel,
+      originalChannel: track.channel,
+    });
+  }
+
+  // ---- 2. Assign SEQTRAK channels (melodic tracks) ---------------------
+
+  const melodicTracks = trackMetas.filter((t) => !t.isDrum);
+  const channelAssignment = new Map<number, SeqtrackChannel>(); // trackIndex → channel
+
+  // Sort melodic tracks: bass first, then by note count descending
+  const synthChs = profile?.synthChannels ?? [8, 9, 10];
+  const bassCh = synthChs[0] ?? 8;
+
+  const sorted = [...melodicTracks].sort((a, b) => {
+    const aIsBass = a.preferredChannel === bassCh ? 0 : 1;
+    const bIsBass = b.preferredChannel === bassCh ? 0 : 1;
+    if (aIsBass !== bIsBass) return aIsBass - bIsBass;
+    return b.noteCount - a.noteCount;
+  });
+
+  // Available melodic channels from profile (SEQTRAK: [8,9,10], MicroFreak: [1])
+  // For single-channel synths, all tracks merge to that one channel.
+  const melodicSlots: SeqtrackChannel[] = synthChs.length > 1
+    ? synthChs.slice(0, -1) as SeqtrackChannel[] // exclude last (sampler on SEQTRAK)
+    : synthChs as SeqtrackChannel[];
+  const overflowCh = melodicSlots[Math.min(1, melodicSlots.length - 1)] ?? melodicSlots[0];
+  const usedChannels = new Set<SeqtrackChannel>();
+
+  for (const meta of sorted) {
+    let assigned: SeqtrackChannel;
+
+    if (meta.preferredChannel === bassCh && !usedChannels.has(bassCh)) {
+      assigned = bassCh;
+    } else {
+      const available = melodicSlots.find((ch) => !usedChannels.has(ch));
+      assigned = available ?? overflowCh;
+    }
+
+    usedChannels.add(assigned);
+    channelAssignment.set(meta.trackIndex, assigned);
+    meta.preferredChannel = assigned;
+  }
+
+  // ---- 3. Build notes + trackInfos ------------------------------------
+
   const notes: ImportedNote[] = [];
   const channels = new Set<number>();
+  const trackInfos: ImportTrackInfo[] = [];
 
-  for (const track of midi.tracks) {
-    // Tone.js Midi uses 0-indexed channels; GM drums = channel index 9
-    const isDrum = track.channel === 9;
+  for (const meta of trackMetas) {
+    const track = midi.tracks[meta.trackIndex];
 
-    for (const note of track.notes) {
-      if (isDrum) {
-        // Map GM drum notes to SEQTRAK channels 1-7
-        const ch = gmDrumToSeqtrack(note.midi);
-        notes.push({
-          pitch: 60, // drums always use pitch 60 on SEQTRAK
-          velocity: Math.round(note.velocity * 127),
-          time: note.time,
-          duration: note.duration,
-          channel: ch,
+    if (meta.isDrum) {
+      const hasDrumChannels = (profile?.drumChannels?.length ?? 7) > 0;
+      const isSingleChannelGroovebox = profile?.architecture === "groovebox" && !hasDrumChannels;
+
+      if (hasDrumChannels) {
+        // SEQTRAK: map per-note to device drum channels (1-7)
+        for (const note of track.notes) {
+          const ch = gmDrumToSeqtrack(note.midi);
+          notes.push({
+            pitch: 60,
+            velocity: Math.round(note.velocity * 127),
+            time: note.time,
+            duration: note.duration,
+            channel: ch,
+          });
+          channels.add(ch);
+        }
+
+        trackInfos.push({
+          originalChannel: meta.originalChannel,
+          seqtrackChannel: (profile?.drumChannels?.[0] ?? 1) as SeqtrackChannel,
+          name: meta.name,
+          gmProgram: meta.gmProgram,
+          gmFamily: meta.gmFamily,
+          noteCount: meta.noteCount,
+          pitchRange: [meta.pitchMin, meta.pitchMax],
+          suggestedPresetId: null,
+          isDrum: true,
         });
-        channels.add(ch);
-      } else {
-        // Melodic: assign to ch 8-11 based on track index
-        const trackIndex = midi.tracks.indexOf(track);
-        const ch = Math.min(11, 8 + (trackIndex % 4)) as number;
+      } else if (isSingleChannelGroovebox) {
+        // KO II: keep drum notes as pitched on channel 1 (GM drums 36-47 = Group A range)
+        const targetCh = (profile?.synthChannels?.[0] ?? 1) as SeqtrackChannel;
+        for (const note of track.notes) {
+          // Clamp GM drum notes to Group A range (36-47) for KO II pad mapping
+          const pitch = Math.max(36, Math.min(47, note.midi));
+          notes.push({
+            pitch,
+            velocity: Math.round(note.velocity * 127),
+            time: note.time,
+            duration: note.duration,
+            channel: targetCh,
+          });
+          channels.add(targetCh);
+        }
+
+        trackInfos.push({
+          originalChannel: meta.originalChannel,
+          seqtrackChannel: targetCh,
+          name: meta.name,
+          gmProgram: meta.gmProgram,
+          gmFamily: meta.gmFamily,
+          noteCount: meta.noteCount,
+          pitchRange: [36, 47],
+          suggestedPresetId: null,
+          isDrum: true,
+        });
+      }
+      // else: skip drum tracks for synth-only devices (MicroFreak)
+    } else {
+      const ch = channelAssignment.get(meta.trackIndex) ?? 11;
+      for (const note of track.notes) {
         notes.push({
           pitch: note.midi,
           velocity: Math.round(note.velocity * 127),
@@ -42,14 +185,38 @@ export async function parseMidiFile(arrayBuffer: ArrayBuffer): Promise<ImportRes
         });
         channels.add(ch);
       }
+
+      trackInfos.push({
+        originalChannel: meta.originalChannel,
+        seqtrackChannel: ch as SeqtrackChannel,
+        name: meta.name,
+        gmProgram: meta.gmProgram,
+        gmFamily: meta.gmFamily,
+        noteCount: meta.noteCount,
+        pitchRange: [meta.pitchMin, meta.pitchMax],
+        suggestedPresetId: gmProgramToPresetId(meta.gmProgram),
+        isDrum: false,
+      });
     }
   }
 
+  // ---- 4. Compute total bar count from note end times ------------------
+
+  const bpm = midi.header.tempos[0]?.bpm ?? 120;
+  const secondsPerBar = (60 / bpm) * 4; // 4 beats per bar in 4/4 time
+  const maxEndTime = notes.reduce(
+    (max, n) => Math.max(max, n.time + n.duration),
+    0,
+  );
+  const totalBars = Math.max(1, Math.ceil(maxEndTime / secondsPerBar));
+
   return {
     notes,
-    bpm: midi.header.tempos[0]?.bpm,
+    bpm,
     name: midi.name || undefined,
     channels: Array.from(channels).sort((a, b) => a - b),
+    trackInfos,
+    totalBars,
   };
 }
 

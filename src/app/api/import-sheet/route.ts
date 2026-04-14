@@ -1,8 +1,9 @@
 export const maxDuration = 300; // 5 minutes for AI vision
 
-import { getModelWithOverride } from "@/lib/ai/model-provider";
+import { getModelFromConfig } from "@/lib/ai/model-provider";
 import { noteNameToMidi } from "@/lib/midi/note-utils";
 import type { ImportResult, ImportedNote } from "@/lib/import/types";
+import type { ProviderConfig } from "@/lib/settings";
 
 // ---------------------------------------------------------------------------
 // POST handler — route by file extension
@@ -14,8 +15,16 @@ export async function POST(request: Request) {
     const file = formData.get("file") as File | null;
     const instrument = formData.get("instrument") as string | null;
     const targetChannel = formData.get("targetChannel") as string | null;
-    const modelProvider = formData.get("modelProvider") as string | null;
-    const modelId = formData.get("modelId") as string | null;
+    const doclingUrl = formData.get("doclingUrl") as string | null;
+    const doclingApiKey = formData.get("doclingApiKey") as string | null;
+
+    // Build ProviderConfig from formData fields
+    const providerConfig: ProviderConfig = {
+      provider: (formData.get("provider") as ProviderConfig["provider"]) || "claude",
+      modelId: (formData.get("modelId") as string) || undefined,
+      apiKey: (formData.get("apiKey") as string) || undefined,
+      baseUrl: (formData.get("baseUrl") as string) || undefined,
+    };
 
     if (!file) {
       return Response.json({ error: "No file provided" }, { status: 400 });
@@ -38,8 +47,9 @@ export async function POST(request: Request) {
         file.name,
         instrument,
         targetChannel,
-        modelProvider,
-        modelId,
+        providerConfig,
+        doclingUrl,
+        doclingApiKey,
       );
     }
 
@@ -49,8 +59,7 @@ export async function POST(request: Request) {
         ext,
         instrument,
         targetChannel,
-        modelProvider,
-        modelId,
+        providerConfig,
       );
     }
 
@@ -329,60 +338,60 @@ async function handlePDF(
   fileName: string,
   instrument: string | null,
   targetChannel: string | null,
-  modelProvider: string | null,
-  modelId: string | null,
+  providerConfig: ProviderConfig,
+  doclingUrl: string | null,
+  doclingApiKey: string | null,
 ): Promise<Response> {
   // Step 1: Try Docling API for text/structure extraction
   let doclingMarkdown: string | null = null;
 
-  try {
-    const doclingForm = new FormData();
-    doclingForm.append(
-      "files",
-      new Blob([new Uint8Array(buffer)], { type: "application/pdf" }),
-      fileName,
-    );
-    doclingForm.append("to_formats", "md");
+  if (doclingUrl) {
+    try {
+      const doclingForm = new FormData();
+      doclingForm.append(
+        "files",
+        new Blob([new Uint8Array(buffer)], { type: "application/pdf" }),
+        fileName,
+      );
+      doclingForm.append("to_formats", "md");
 
-    console.log("[import-sheet/pdf] trying Docling API...");
+      console.log("[import-sheet/pdf] trying Docling API...");
 
-    const doclingRes = await fetch(
-      "https://docling.taktik.net/v1/convert/file",
-      {
-        method: "POST",
-        headers: {
-          "X-Api-Key": "GIgKjX+a6gP41fRuOsSrGrveqeV+afhY4rWFcjQ0F2g=",
+      const doclingRes = await fetch(
+        doclingUrl,
+        {
+          method: "POST",
+          headers: doclingApiKey ? { "X-Api-Key": doclingApiKey } : {},
+          body: doclingForm,
+          signal: AbortSignal.timeout(60_000), // 60 second timeout for Docling
         },
-        body: doclingForm,
-        signal: AbortSignal.timeout(60_000), // 60 second timeout for Docling
-      },
-    );
+      );
 
-    if (doclingRes.ok) {
-      const doclingData = await doclingRes.json();
-      // Docling returns various response shapes depending on version
-      if (typeof doclingData === "string") {
-        doclingMarkdown = doclingData;
-      } else if (doclingData?.document?.[0]?.md_content) {
-        doclingMarkdown = doclingData.document[0].md_content;
-      } else if (doclingData?.md_content) {
-        doclingMarkdown = doclingData.md_content;
-      } else if (doclingData?.content) {
-        doclingMarkdown = String(doclingData.content);
+      if (doclingRes.ok) {
+        const doclingData = await doclingRes.json();
+        // Docling returns various response shapes depending on version
+        if (typeof doclingData === "string") {
+          doclingMarkdown = doclingData;
+        } else if (doclingData?.document?.[0]?.md_content) {
+          doclingMarkdown = doclingData.document[0].md_content;
+        } else if (doclingData?.md_content) {
+          doclingMarkdown = doclingData.md_content;
+        } else if (doclingData?.content) {
+          doclingMarkdown = String(doclingData.content);
+        } else {
+          doclingMarkdown = JSON.stringify(doclingData);
+        }
+        console.log(
+          `[import-sheet/pdf] Docling returned ${doclingMarkdown?.length ?? 0} chars`,
+        );
       } else {
-        // Try to extract markdown from any string field
-        doclingMarkdown = JSON.stringify(doclingData);
+        console.warn(
+          `[import-sheet/pdf] Docling returned ${doclingRes.status}: ${await doclingRes.text().catch(() => "")}`,
+        );
       }
-      console.log(
-        `[import-sheet/pdf] Docling returned ${doclingMarkdown?.length ?? 0} chars`,
-      );
-    } else {
-      console.warn(
-        `[import-sheet/pdf] Docling returned ${doclingRes.status}: ${await doclingRes.text().catch(() => "")}`,
-      );
+    } catch (err) {
+      console.warn("[import-sheet/pdf] Docling failed:", err);
     }
-  } catch (err) {
-    console.warn("[import-sheet/pdf] Docling failed:", err);
   }
 
   // Step 2: Try to parse note sequences from Docling markdown
@@ -409,8 +418,7 @@ async function handlePDF(
     "pdf",
     instrument,
     targetChannel,
-    modelProvider,
-    modelId,
+    providerConfig,
     doclingMarkdown,
   );
 }
@@ -424,8 +432,7 @@ async function handleImage(
   ext: string,
   instrument: string | null,
   targetChannel: string | null,
-  modelProvider: string | null,
-  modelId: string | null,
+  providerConfig: ProviderConfig,
 ): Promise<Response> {
   const base64 = buffer.toString("base64");
   return transcribeWithVision(
@@ -433,8 +440,7 @@ async function handleImage(
     ext,
     instrument,
     targetChannel,
-    modelProvider,
-    modelId,
+    providerConfig,
     null,
   );
 }
@@ -474,15 +480,11 @@ async function transcribeWithVision(
   ext: string,
   instrument: string | null,
   targetChannel: string | null,
-  modelProvider: string | null,
-  modelId: string | null,
+  providerConfig: ProviderConfig,
   doclingContext: string | null,
 ): Promise<Response> {
   const { generateText } = await import("ai");
-  const model = getModelWithOverride(
-    modelProvider ?? undefined,
-    modelId ?? undefined,
-  );
+  const model = await getModelFromConfig(providerConfig);
   const channel = targetChannel ? parseInt(targetChannel, 10) : 8;
   const mimeType = MIME_TYPES[ext] ?? "image/png";
 
@@ -516,7 +518,7 @@ Rules:
 - Return JSON only, no explanation${instrumentHint}${doclingHint}`;
 
   console.log(
-    `[import-sheet/vision] sending to AI, provider=${modelProvider ?? "claude"}, model=${modelId ?? "default"}`,
+    `[import-sheet/vision] sending to AI, provider=${providerConfig.provider}, model=${providerConfig.modelId ?? "default"}`,
   );
 
   const { text } = await generateText({
@@ -699,8 +701,12 @@ function parseNotesFromMarkdown(
 // ---------------------------------------------------------------------------
 
 function extractJSON<T>(text: string): T | null {
-  // Strip thinking tags
-  const cleaned = text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+  // Strip reasoning/thinking blocks from various models (Qwen3, DeepSeek R1, etc.)
+  const cleaned = text
+    .replace(/<think>[\s\S]*?<\/think>/g, "")
+    .replace(/<\|thinking\|>[\s\S]*?<\|\/thinking\|>/g, "")
+    .replace(/<reasoning>[\s\S]*?<\/reasoning>/g, "")
+    .trim();
 
   const strategies: (() => unknown)[] = [
     () => JSON.parse(cleaned),

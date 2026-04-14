@@ -88,7 +88,13 @@ export async function initHandLandmarker(
   }
 
   try {
-    return await HandLandmarker.createFromOptions(vision, {
+    // Suppress MediaPipe's TF Lite XNNPACK info message logged via console.error
+    const origError = console.error;
+    console.error = (...args: unknown[]) => {
+      if (typeof args[0] === "string" && args[0].includes("TensorFlow Lite")) return;
+      origError.apply(console, args);
+    };
+    const landmarker = await HandLandmarker.createFromOptions(vision, {
       baseOptions: {
         modelAssetPath: MODEL_CDN,
         delegate: "GPU",
@@ -99,6 +105,8 @@ export async function initHandLandmarker(
       minHandPresenceConfidence: config.minDetectionConfidence,
       minTrackingConfidence: config.minTrackingConfidence,
     });
+    console.error = origError;
+    return landmarker;
   } catch (err) {
     throw new Error(
       "Failed to initialize hand tracking model. Your browser may not support GPU acceleration. " +

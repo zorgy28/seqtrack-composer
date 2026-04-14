@@ -2,86 +2,128 @@ import type { SeqtrackChannel, ChannelTestResult } from "@/lib/midi/types";
 import { ALL_CHANNELS, SEQTRAK_TRACKS } from "@/lib/midi/constants";
 import { sendNote } from "./midi-sender";
 
-const TEST_NOTE = 60; // C3
 const TEST_VELOCITY = 100;
 const TEST_DURATION_MS = 200;
 const DELAY_BETWEEN_CHANNELS_MS = 300;
 
+// Inline profile type to avoid Turbopack circular deps
+type ProfileLike = { tracks?: Array<{ name: string; channel: number; defaultPitch?: number }> };
+
 /**
- * Run a per-channel test sequence.
- * Sends a test note on each of the 11 SEQTRAK channels sequentially.
- * Calls onProgress after each channel for live UI updates.
+ * Run a per-track test sequence.
+ * When a profile is provided, tests each profile track with its defaultPitch.
+ * Otherwise falls back to SEQTRAK channels with note C3.
  */
 export async function runConnectionTest(
   deviceId: string,
   onProgress: (result: ChannelTestResult) => void,
+  profile?: ProfileLike,
 ): Promise<ChannelTestResult[]> {
   const results: ChannelTestResult[] = [];
 
-  for (const channel of ALL_CHANNELS) {
-    const trackInfo = SEQTRAK_TRACKS[channel];
+  if (profile?.tracks) {
+    for (const track of profile.tracks) {
+      const pitch = track.defaultPitch ?? 60;
 
-    // Signal testing state
-    onProgress({
-      channel,
-      trackName: trackInfo.name,
-      status: "testing",
-      timestamp: null,
-    });
+      onProgress({
+        channel: track.channel,
+        trackName: track.name,
+        status: "testing",
+        timestamp: null,
+      });
 
-    // Small delay for UI to update
-    await sleep(50);
+      await sleep(50);
 
-    try {
-      sendNote(deviceId, channel, TEST_NOTE, TEST_VELOCITY, TEST_DURATION_MS);
+      try {
+        sendNote(deviceId, track.channel, pitch, TEST_VELOCITY, TEST_DURATION_MS);
+        const result: ChannelTestResult = {
+          channel: track.channel,
+          trackName: track.name,
+          status: "sent",
+          timestamp: Date.now(),
+        };
+        results.push(result);
+        onProgress(result);
+      } catch {
+        const result: ChannelTestResult = {
+          channel: track.channel,
+          trackName: track.name,
+          status: "error",
+          timestamp: Date.now(),
+        };
+        results.push(result);
+        onProgress(result);
+      }
 
-      const result: ChannelTestResult = {
-        channel,
-        trackName: trackInfo.name,
-        status: "sent",
-        timestamp: Date.now(),
-      };
-
-      results.push(result);
-      onProgress(result);
-    } catch {
-      const result: ChannelTestResult = {
-        channel,
-        trackName: trackInfo.name,
-        status: "error",
-        timestamp: Date.now(),
-      };
-
-      results.push(result);
-      onProgress(result);
+      await sleep(DELAY_BETWEEN_CHANNELS_MS);
     }
+  } else {
+    // SEQTRAK fallback
+    for (const channel of ALL_CHANNELS) {
+      const trackInfo = SEQTRAK_TRACKS[channel];
 
-    // Wait between channels so sounds don't overlap
-    await sleep(DELAY_BETWEEN_CHANNELS_MS);
+      onProgress({
+        channel,
+        trackName: trackInfo.name,
+        status: "testing",
+        timestamp: null,
+      });
+
+      await sleep(50);
+
+      try {
+        sendNote(deviceId, channel, 60, TEST_VELOCITY, TEST_DURATION_MS);
+        const result: ChannelTestResult = {
+          channel,
+          trackName: trackInfo.name,
+          status: "sent",
+          timestamp: Date.now(),
+        };
+        results.push(result);
+        onProgress(result);
+      } catch {
+        const result: ChannelTestResult = {
+          channel,
+          trackName: trackInfo.name,
+          status: "error",
+          timestamp: Date.now(),
+        };
+        results.push(result);
+        onProgress(result);
+      }
+
+      await sleep(DELAY_BETWEEN_CHANNELS_MS);
+    }
   }
 
   return results;
 }
 
 /**
- * Test a single channel.
+ * Test a single channel/track.
+ * When a profile is provided, uses the track's defaultPitch.
  */
 export function testSingleChannel(
   deviceId: string,
   channel: SeqtrackChannel,
+  profile?: ProfileLike,
 ): ChannelTestResult {
+  const track = profile?.tracks?.find(t => t.channel === channel);
+  const pitch = track?.defaultPitch ?? 60;
+  const trackName = track?.name ?? SEQTRAK_TRACKS[channel]?.name ?? `Ch ${channel}`;
+
   try {
-    sendNote(deviceId, channel, TEST_NOTE, TEST_VELOCITY, TEST_DURATION_MS);
+    sendNote(deviceId, channel, pitch, TEST_VELOCITY, TEST_DURATION_MS);
     return {
       channel,
-      trackName: SEQTRAK_TRACKS[channel].name,
+      trackName,
       status: "sent",
       timestamp: Date.now(),
     };
   } catch {
     return {
       channel,
-      trackName: SEQTRAK_TRACKS[channel].name,
+      trackName,
       status: "error",
       timestamp: Date.now(),
     };

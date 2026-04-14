@@ -1,0 +1,319 @@
+import { createStore, useStore } from "zustand";
+import { useShallow } from "zustand/shallow";
+import { createContext, useContext } from "react";
+import type { Project, SeqtrackChannel, Pattern, Track, Note } from "@/lib/midi/types";
+import type { TranscriptionOption } from "@/lib/transcription/types";
+import { createEmptyProject, createTrack } from "@/lib/midi/pattern-generators";
+import {
+  saveProject as idbSaveProject,
+  saveSetting,
+} from "@/lib/storage/indexed-db";
+
+// ─── Types ──────────────────────────────────────────────────────
+
+export interface ProjectState {
+  project: Project;
+  selectedChannel: SeqtrackChannel;
+}
+
+export interface ProjectActions {
+  setProject: (project: Project) => void;
+  setSelectedChannel: (ch: SeqtrackChannel) => void;
+  updatePattern: (channel: SeqtrackChannel, patternIndex: number, pattern: Pattern) => void;
+  updateTrack: (channel: SeqtrackChannel, updates: Partial<Track>) => void;
+  updateBpm: (bpm: number) => void;
+  setActivePatternAll: (index: number) => void;
+  loadTranscription: (option: TranscriptionOption) => void;
+  /** Create a fresh project for a specific device profile */
+  createProjectForDevice: (profile: { id?: string; allChannels?: number[] }) => void;
+  /** Called once IDB is ready — internal, not part of public API */
+  _hydrateFromIdb: (project: Project) => void;
+}
+
+export type ProjectStore = ProjectState & ProjectActions;
+
+// ─── Auto-save: IndexedDB primary, localStorage fallback ────────
+
+const AUTOSAVE_KEY = "seqtrack-current-project";
+
+let useIdb = false;
+let saveTimeout: ReturnType<typeof setTimeout> | null = null;
+
+/** Enable IndexedDB auto-save (called after migration completes) */
+export function enableIdb() { useIdb = true; }
+
+function autoSave(project: Project) {
+  if (typeof window === "undefined") return;
+
+  if (saveTimeout) clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(() => {
+    if (useIdb) {
+      idbSaveProject(project)
+        .then(() => saveSetting("current-project-id", project.id))
+        .catch(() => {
+          try {
+            localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(project));
+          } catch { /* storage full */ }
+        });
+    } else {
+      try {
+        localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(project));
+      } catch { /* storage full */ }
+    }
+  }, 300);
+}
+
+/** Synchronous load from localStorage for instant first render */
+export function loadSavedProject(): Project {
+  if (typeof window === "undefined") return createEmptyProject();
+  try {
+    const saved = localStorage.getItem(AUTOSAVE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved) as Project;
+      if (parsed && parsed.tracks && parsed.bpm) return parsed;
+    }
+  } catch { /* ignore */ }
+  return createEmptyProject();
+}
+
+// ─── Store factory ──────────────────────────────────────────────
+
+export function createProjectStore(initialProject?: Project) {
+  return createStore<ProjectStore>()((set) => ({
+    project: initialProject ?? loadSavedProject(),
+    selectedChannel: 1 as SeqtrackChannel,
+
+    setProject: (p: Project) => {
+      const updated = { ...p, updatedAt: new Date().toISOString() };
+      set({ project: updated });
+      autoSave(updated);
+    },
+
+    setSelectedChannel: (ch: SeqtrackChannel) => {
+      set({ selectedChannel: ch });
+    },
+
+    updatePattern: (channel: SeqtrackChannel, patternIndex: number, pattern: Pattern) => {
+      set((state) => {
+        const prev = state.project;
+        if (!prev.tracks[channel]) return state;
+        const track = { ...prev.tracks[channel] };
+        const patterns = [...track.patterns];
+        patterns[patternIndex] = pattern;
+        track.patterns = patterns;
+        const updated: Project = {
+          ...prev,
+          tracks: { ...prev.tracks, [channel]: track },
+          updatedAt: new Date().toISOString(),
+        };
+        autoSave(updated);
+        return { project: updated };
+      });
+    },
+
+    updateTrack: (channel: SeqtrackChannel, updates: Partial<Track>) => {
+      set((state) => {
+        const prev = state.project;
+        if (!prev.tracks[channel]) return state;
+        const track = { ...prev.tracks[channel], ...updates };
+        const updated: Project = {
+          ...prev,
+          tracks: { ...prev.tracks, [channel]: track },
+          updatedAt: new Date().toISOString(),
+        };
+        autoSave(updated);
+        return { project: updated };
+      });
+    },
+
+    updateBpm: (bpm: number) => {
+      set((state) => {
+        const updated: Project = {
+          ...state.project,
+          bpm,
+          updatedAt: new Date().toISOString(),
+        };
+        autoSave(updated);
+        return { project: updated };
+      });
+    },
+
+    setActivePatternAll: (index: number) => {
+      set((state) => {
+        const prev = state.project;
+        const updatedTracks = { ...prev.tracks };
+        for (const ch of Object.keys(updatedTracks)) {
+          const channel = Number(ch) as SeqtrackChannel;
+          const track = updatedTracks[channel];
+          if (track && index < track.patterns.length) {
+            updatedTracks[channel] = { ...track, activePattern: index };
+          }
+        }
+        const updated: Project = {
+          ...prev,
+          tracks: updatedTracks,
+          updatedAt: new Date().toISOString(),
+        };
+        // NOTE: no autoSave() here — activePattern is UI navigation state.
+        // Saving on every click would trigger JSON.stringify of the whole
+        // project (on localStorage fallback), which is a measurable stall.
+        // The next real edit will include the new activePattern in its save.
+        return { project: updated };
+      });
+    },
+
+    loadTranscription: (option: TranscriptionOption) => {
+      const newProject = createEmptyProject(option.label);
+      newProject.bpm = option.bpm;
+
+      if (option.key) {
+        const parts = option.key.split(/\s+/);
+        if (parts[0]) newProject.scaleRoot = parts[0];
+        if (parts[1]) newProject.scaleName = parts[1].toLowerCase().replace(/ /g, "_");
+      }
+
+      for (const t of option.tracks) {
+        const ch = t.channel as SeqtrackChannel;
+        const track = createTrack(ch);
+        if (t.patterns.length > 0) {
+          track.patterns = t.patterns.map((p) => ({
+            ...p,
+            swing: p.swing ?? option.swing ?? 0,
+          }));
+        }
+        newProject.tracks[ch] = track;
+      }
+
+      const updated = { ...newProject, updatedAt: new Date().toISOString() };
+      set({ project: updated });
+      autoSave(updated);
+    },
+
+    createProjectForDevice: (profile: { id?: string; allChannels?: number[] }) => {
+      const newProject = createEmptyProject("Untitled Project", profile as any);
+      set({ project: newProject, selectedChannel: (profile.allChannels?.[0] ?? 1) as SeqtrackChannel });
+      autoSave(newProject);
+    },
+
+    _hydrateFromIdb: (project: Project) => {
+      set((state) => {
+        if (project.updatedAt > state.project.updatedAt) {
+          return { project };
+        }
+        return state;
+      });
+    },
+  }));
+}
+
+// ─── React context ──────────────────────────────────────────────
+
+export type ProjectStoreApi = ReturnType<typeof createProjectStore>;
+
+export const ProjectStoreContext = createContext<ProjectStoreApi | null>(null);
+
+function useProjectStore(): ProjectStoreApi {
+  const store = useContext(ProjectStoreContext);
+  if (!store) throw new Error("useProject must be used within ProjectProvider");
+  return store;
+}
+
+// ─── Selectors ──────────────────────────────────────────────────
+
+/**
+ * Full backward-compatible hook — returns all state + actions.
+ * Components using this re-render on ANY project change.
+ */
+export function useProject() {
+  const store = useProjectStore();
+  return useStore(store);
+}
+
+/**
+ * Select a single track by channel. Only re-renders when THAT track changes.
+ */
+export function useTrack(channel: SeqtrackChannel): Track {
+  const store = useProjectStore();
+  return useStore(store, (s) => s.project.tracks[channel]);
+}
+
+/**
+ * Project metadata: everything except tracks.
+ * Re-renders on bpm/scale/name changes but NOT on individual track changes.
+ */
+export function useProjectMeta() {
+  const store = useProjectStore();
+  return useStore(store, useShallow((s) => ({
+    id: s.project.id,
+    name: s.project.name,
+    bpm: s.project.bpm,
+    scaleRoot: s.project.scaleRoot,
+    scaleName: s.project.scaleName,
+    quantize: s.project.quantize,
+    scenes: s.project.scenes,
+    createdAt: s.project.createdAt,
+    updatedAt: s.project.updatedAt,
+  })));
+}
+
+/** Just the selected channel + setter. */
+export function useSelectedChannel() {
+  const store = useProjectStore();
+  return useStore(store, useShallow((s) => ({
+    selectedChannel: s.selectedChannel,
+    setSelectedChannel: s.setSelectedChannel,
+  })));
+}
+
+/** Just the updatePattern action — stable reference, never causes re-renders on its own. */
+export function useUpdatePattern() {
+  const store = useProjectStore();
+  return useStore(store, (s) => s.updatePattern);
+}
+
+/** Just the setActivePatternAll action — stable reference, never causes re-renders on its own. */
+export function useSetActivePatternAll() {
+  const store = useProjectStore();
+  return useStore(store, (s) => s.setActivePatternAll);
+}
+
+/** Just the updateTrack action — stable reference. */
+export function useUpdateTrack() {
+  const store = useProjectStore();
+  return useStore(store, (s) => s.updateTrack);
+}
+
+/** Just the setProject action — stable reference. */
+export function useSetProject() {
+  const store = useProjectStore();
+  return useStore(store, (s) => s.setProject);
+}
+
+/**
+ * Returns the active-pattern note arrays for all non-muted tracks EXCEPT the given channel.
+ * Each value is the stable `pattern.notes` reference from the store — so `useShallow`
+ * correctly caches the result and only re-renders when OTHER channels' notes change.
+ * Muted tracks are filtered out inside the selector to avoid extra inner objects.
+ */
+export function useTrackPatternsExcept(
+  excludeChannel: SeqtrackChannel,
+): Partial<Record<SeqtrackChannel, Note[]>> {
+  const store = useProjectStore();
+  return useStore(
+    store,
+    useShallow((s) => {
+      const result: Partial<Record<SeqtrackChannel, Note[]>> = {};
+      for (const chStr of Object.keys(s.project.tracks)) {
+        const ch = Number(chStr) as SeqtrackChannel;
+        if (ch === excludeChannel) continue;
+        const track = s.project.tracks[ch];
+        if (!track || track.muted) continue;
+        const activePattern = track.patterns[track.activePattern];
+        if (activePattern) {
+          result[ch] = activePattern.notes; // stable reference from the store
+        }
+      }
+      return result;
+    }),
+  );
+}

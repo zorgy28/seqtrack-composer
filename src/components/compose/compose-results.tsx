@@ -11,25 +11,10 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { SEQTRAK_TRACKS, STEPS_PER_BAR } from "@/lib/midi/constants";
+import { SEQTRAK_TRACKS, STEPS_PER_BAR, getTrackSolidClass } from "@/lib/midi/constants";
+import { useDeviceProfile } from "@/providers/device-provider";
 import type { SeqtrackChannel } from "@/lib/midi/types";
 import type { CompositionOutput } from "@/lib/ai/schema";
-
-// ── Track Colors ────────────────────────────────────────────────
-
-const TRACK_COLORS: Record<number, string> = {
-  1: "bg-red-500",
-  2: "bg-yellow-500",
-  3: "bg-fuchsia-500",
-  4: "bg-cyan-500",
-  5: "bg-blue-500",
-  6: "bg-green-500",
-  7: "bg-slate-500",
-  8: "bg-purple-500",
-  9: "bg-teal-500",
-  10: "bg-amber-500",
-  11: "bg-emerald-500",
-};
 
 // ── Mini Step Row ───────────────────────────────────────────────
 
@@ -70,7 +55,7 @@ function MiniStepRow({
               "rounded-[1px] transition-colors",
               isBarBoundary && "ml-px",
               isActive
-                ? TRACK_COLORS[channel]
+                ? getTrackSolidClass(channel as SeqtrackChannel)
                 : "bg-foreground/5",
               isCurrent && "ring-1 ring-primary bg-primary/40",
             )}
@@ -111,6 +96,7 @@ export function ComposeResults({
   onReuseDescription,
 }: ComposeResultsProps) {
   const [refineText, setRefineText] = useState("");
+  const { profile } = useDeviceProfile();
 
   const handleRefine = () => {
     const text = refineText.trim();
@@ -118,6 +104,13 @@ export function ComposeResults({
     setRefineText("");
     onRefine(text);
   };
+
+  // Helper: get track info from device profile, fallback to SEQTRAK_TRACKS
+  function getTrackInfo(ch: number) {
+    const profileTrack = profile.tracks.find(t => t.channel === ch);
+    if (profileTrack) return { name: profileTrack.name, type: profileTrack.type, color: profileTrack.color };
+    return SEQTRAK_TRACKS[ch as SeqtrackChannel];
+  }
 
   // Filter to tracks that actually have notes
   const activeTracks = result.tracks.filter(
@@ -146,9 +139,9 @@ export function ComposeResults({
       {/* Per-track rows */}
       {activeTracks.length > 0 && (
         <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted/20 p-3">
-          {activeTracks.map((t) => {
+          {activeTracks.map((t, idx) => {
             const ch = t.channel as SeqtrackChannel;
-            const trackInfo = SEQTRAK_TRACKS[ch];
+            const trackInfo = getTrackInfo(ch);
             if (!trackInfo) return null;
 
             const pattern = t.patterns[0];
@@ -157,13 +150,13 @@ export function ComposeResults({
             const notes = pattern?.notes ?? [];
 
             return (
-              <div key={ch} className="flex items-center gap-3">
+              <div key={`${ch}-${idx}`} className="flex items-center gap-3">
                 {/* Color dot + track name */}
                 <div className="flex items-center gap-2 w-20 shrink-0">
                   <span
                     className={cn(
                       "size-2 shrink-0 rounded-full",
-                      TRACK_COLORS[ch],
+                      getTrackSolidClass(ch),
                     )}
                   />
                   <span className="text-xs font-medium truncate">
@@ -186,30 +179,60 @@ export function ComposeResults({
                   {noteCount} {noteCount === 1 ? "note" : "notes"}
                 </span>
 
-                {/* Sound preset badge with tooltip for reason */}
-                {t.soundPreset && (
-                  t.reason ? (
-                    <Tooltip>
-                      <TooltipTrigger>
+                {/* Sound preset badge with tooltip for reason + sound design CCs */}
+                {(t.soundPreset || (t.soundDesign && t.soundDesign.length > 0) || (t.matrixRouting && t.matrixRouting.length > 0)) && (
+                  <div className="flex flex-col items-end shrink-0">
+                    {t.soundPreset && (
+                      t.reason ? (
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <Badge
+                              variant="secondary"
+                              className="shrink-0 max-w-[140px] truncate cursor-default"
+                            >
+                              {t.soundPreset.name}
+                            </Badge>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            {t.reason}
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (
                         <Badge
                           variant="secondary"
-                          className="shrink-0 max-w-[140px] truncate cursor-default"
+                          className="shrink-0 max-w-[140px] truncate"
                         >
                           {t.soundPreset.name}
                         </Badge>
-                      </TooltipTrigger>
-                      <TooltipContent side="top">
-                        {t.reason}
-                      </TooltipContent>
-                    </Tooltip>
-                  ) : (
-                    <Badge
-                      variant="secondary"
-                      className="shrink-0 max-w-[140px] truncate"
-                    >
-                      {t.soundPreset.name}
-                    </Badge>
-                  )
+                      )
+                    )}
+                    {t.soundDesign && t.soundDesign.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {t.soundDesign.map((p) => (
+                          <span
+                            key={p.cc}
+                            className="inline-flex items-center rounded bg-muted/60 px-1.5 py-0.5 text-[9px] tabular-nums text-muted-foreground"
+                            title={`${p.name}: ${p.value}`}
+                          >
+                            {p.name.replace(/^(Oscillator |Filter |LFO |CycleEnv )/, "").slice(0, 6)}: {p.value}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {t.matrixRouting && t.matrixRouting.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {t.matrixRouting.map((m, mi) => (
+                          <span
+                            key={mi}
+                            className="inline-flex items-center rounded bg-purple-500/10 px-1.5 py-0.5 text-[9px] text-purple-400"
+                            title={`Matrix: ${m.source}→${m.destination}: ${m.amount > 0 ? "+" : ""}${m.amount}`}
+                          >
+                            {m.source.slice(0, 5)}→{m.destination.slice(0, 5)}: {m.amount > 0 ? "+" : ""}{m.amount}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             );
@@ -236,6 +259,7 @@ export function ComposeResults({
           size="sm"
           onClick={onPreview}
           className="gap-1.5"
+          title="Preview pattern on SEQTRAK"
         >
           {isPlaying ? (
             <>
@@ -250,10 +274,10 @@ export function ComposeResults({
           )}
         </Button>
         <div className="flex-1" />
-        <Button variant="outline" size="sm" onClick={onApply}>
+        <Button variant="outline" size="sm" onClick={onApply} title="Add patterns to current project">
           Apply
         </Button>
-        <Button size="sm" onClick={onApplyAndEdit} className="gap-1.5">
+        <Button size="sm" onClick={onApplyAndEdit} className="gap-1.5" title="Add patterns and open in editor">
           Apply &amp; Edit
           <ArrowRight className="size-3" />
         </Button>

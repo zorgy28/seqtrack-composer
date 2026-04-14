@@ -361,9 +361,9 @@ export const PRESET_FULL_BODY: MappingPreset = {
   mappings: fullBodyMappings,
 };
 
-// ─── All Presets ───────────────────────────────────────────────
+// ─── All SEQTRAK Presets ──────────────────────────────────────
 
-export const ALL_PRESETS: MappingPreset[] = [
+export const SEQTRAK_PRESETS: MappingPreset[] = [
   PRESET_FX_DJ,
   PRESET_FILTER_SWEEP,
   PRESET_DUB_DELAY,
@@ -371,3 +371,71 @@ export const ALL_PRESETS: MappingPreset[] = [
   PRESET_FACE_FX,
   PRESET_FULL_BODY,
 ];
+
+// ─── MicroFreak Presets ───────────────────────────────────────
+// All on channel 1 using MicroFreak CC numbers
+
+const mfFilterSweepMappings: GestureMapping[] = [
+  { id: "mf-palmx-cutoff", name: "Palm X → Filter Cutoff", hand: "any", axis: "palmX", channel: 1, cc: 23, inputRange: [0, 1], outputRange: [0, 127], invert: false, enabled: true },
+  { id: "mf-palmy-resonance", name: "Palm Y → Resonance", hand: "any", axis: "palmY", channel: 1, cc: 83, inputRange: [0, 1], outputRange: [0, 127], invert: false, enabled: true },
+];
+
+const mfSoundDesignMappings: GestureMapping[] = [
+  { id: "mf-pinch-cutoff", name: "Pinch → Filter Cutoff", hand: "any", axis: "pinchThumbIndex", channel: 1, cc: 23, inputRange: [0, 1], outputRange: [0, 127], invert: false, enabled: true },
+  { id: "mf-openness-resonance", name: "Hand Open → Resonance", hand: "any", axis: "openness", channel: 1, cc: 83, inputRange: [0, 1], outputRange: [0, 127], invert: false, enabled: true },
+  { id: "mf-palmy-attack", name: "Palm Y → Attack", hand: "any", axis: "palmY", channel: 1, cc: 105, inputRange: [0, 1], outputRange: [0, 127], invert: false, enabled: true },
+  { id: "mf-roll-decay", name: "Hand Roll → Decay", hand: "any", axis: "roll", channel: 1, cc: 106, inputRange: [-1, 1], outputRange: [0, 127], invert: false, enabled: true },
+];
+
+const mfOscControlMappings: GestureMapping[] = [
+  { id: "mf-palmx-wave", name: "Palm X → Wave", hand: "Left", axis: "palmX", channel: 1, cc: 10, inputRange: [0, 1], outputRange: [0, 127], invert: false, enabled: true },
+  { id: "mf-palmy-timbre", name: "Palm Y → Timbre", hand: "Left", axis: "palmY", channel: 1, cc: 12, inputRange: [0, 1], outputRange: [0, 127], invert: false, enabled: true },
+  { id: "mf-right-palmx-shape", name: "Right Palm X → Shape", hand: "Right", axis: "palmX", channel: 1, cc: 13, inputRange: [0, 1], outputRange: [0, 127], invert: false, enabled: true },
+  { id: "mf-right-pinch-cutoff", name: "Right Pinch → Cutoff", hand: "Right", axis: "pinchThumbIndex", channel: 1, cc: 23, inputRange: [0, 1], outputRange: [0, 127], invert: false, enabled: true },
+];
+
+const mfLfoModMappings: GestureMapping[] = [
+  { id: "mf-palmx-lfo-rate", name: "Palm X → LFO Rate", hand: "any", axis: "palmX", channel: 1, cc: 24, inputRange: [0, 1], outputRange: [0, 127], invert: false, enabled: true },
+  { id: "mf-palmy-cutoff", name: "Palm Y → Filter Cutoff", hand: "any", axis: "palmY", channel: 1, cc: 23, inputRange: [0, 1], outputRange: [0, 127], invert: false, enabled: true },
+  { id: "mf-pinch-spice", name: "Pinch → Spice", hand: "any", axis: "pinchThumbIndex", channel: 1, cc: 3, inputRange: [0, 1], outputRange: [0, 127], invert: false, enabled: true },
+];
+
+const mfFaceSynthMappings: GestureMapping[] = [
+  { id: "mf-face-jaw-cutoff", name: "Jaw Open → Cutoff", hand: "any", axis: "jawOpen", channel: 1, cc: 23, inputRange: [0, 1], outputRange: [0, 127], invert: false, enabled: true },
+  { id: "mf-face-smile-resonance", name: "Smile → Resonance", hand: "any", axis: "mouthSmile", channel: 1, cc: 83, inputRange: [0, 1], outputRange: [0, 127], invert: false, enabled: true },
+  { id: "mf-face-brow-lfo", name: "Brow → LFO Rate", hand: "any", axis: "browInnerUp", channel: 1, cc: 24, inputRange: [0, 1], outputRange: [0, 127], invert: false, enabled: true },
+  { id: "mf-face-cheek-glide", name: "Cheek Puff → Glide", hand: "any", axis: "cheekPuff", channel: 1, cc: 51, inputRange: [0, 1], outputRange: [0, 127], invert: false, enabled: true },
+];
+
+export const MICROFREAK_PRESETS: MappingPreset[] = [
+  { id: "mf-filter-sweep", name: "Filter Sweep", description: "Simple filter control: horizontal sweeps cutoff, vertical controls resonance.", mappings: mfFilterSweepMappings },
+  { id: "mf-sound-design", name: "Sound Sculptor", description: "Shape the MicroFreak tone: pinch for cutoff, hand openness for resonance, height for attack, roll for decay.", mappings: mfSoundDesignMappings },
+  { id: "mf-osc-control", name: "Oscillator Control", description: "Two-handed oscillator shaping: left hand controls wave and timbre, right hand controls shape and filter.", mappings: mfOscControlMappings },
+  { id: "mf-lfo-mod", name: "LFO Modulation", description: "Modulation performance: horizontal sweeps LFO rate, vertical controls filter, pinch adds Spice randomization.", mappings: mfLfoModMappings },
+  { id: "mf-face-synth", name: "Face Synth", description: "Face-only control: jaw opens filter, smile adds resonance, eyebrow controls LFO rate, cheek puff adds glide.", mappings: mfFaceSynthMappings },
+];
+
+// ─── Device-aware preset getter ───────────────────────────────
+
+// ─── KO II Presets ────────────────────────────────────────────
+// Minimal CC control — the EP-133 has no published CC parameter map.
+// Presets focus on volume control (CC7) and mod wheel (CC1).
+
+const ko2VolumeMappings: GestureMapping[] = [
+  { id: "ko2-palmy-volume", name: "Palm Y → Volume", hand: "any", axis: "palmY", channel: 1, cc: 7, inputRange: [0, 1], outputRange: [0, 127], invert: false, enabled: true },
+  { id: "ko2-pinch-mod", name: "Pinch → Mod Wheel", hand: "any", axis: "pinchThumbIndex", channel: 1, cc: 1, inputRange: [0, 1], outputRange: [0, 127], invert: false, enabled: true },
+];
+
+export const KO2_PRESETS: MappingPreset[] = [
+  { id: "ko2-volume", name: "Volume & Mod", description: "Palm height controls volume, pinch controls mod wheel. (EP-133 has limited CC support.)", mappings: ko2VolumeMappings },
+];
+
+/** @deprecated Use getPresetsForDevice instead */
+export const ALL_PRESETS = SEQTRAK_PRESETS;
+
+/** Get mapping presets appropriate for a device profile */
+export function getPresetsForDevice(deviceId?: string): MappingPreset[] {
+  if (deviceId === "microfreak") return MICROFREAK_PRESETS;
+  if (deviceId === "ko2") return KO2_PRESETS;
+  return SEQTRAK_PRESETS;
+}

@@ -13,7 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { SeqtrackChannel, Note } from "@/lib/midi/types";
-import { SEQTRAK_TRACKS, STEPS_PER_BAR } from "@/lib/midi/constants";
+import { SEQTRAK_TRACKS, STEPS_PER_BAR, getTrackSolidClass } from "@/lib/midi/constants";
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -36,22 +36,6 @@ export interface TranscriptionOption {
     alternatives: SoundRecommendation[];
   }>>;
 }
-
-// ─── Track Colors ─────────────────────────────────────────────────
-
-const TRACK_BG_COLORS: Record<number, string> = {
-  1: "bg-red-500",
-  2: "bg-yellow-500",
-  3: "bg-fuchsia-500",
-  4: "bg-cyan-500",
-  5: "bg-blue-500",
-  6: "bg-green-500",
-  7: "bg-slate-500",
-  8: "bg-purple-500",
-  9: "bg-teal-500",
-  10: "bg-amber-500",
-  11: "bg-emerald-500",
-};
 
 const MODE_STYLES: Record<string, { color: string; label: string }> = {
   faithful: { color: "bg-blue-500/20 text-blue-400 border-blue-500/30", label: "Faithful" },
@@ -100,7 +84,7 @@ function MiniStepGrid({
                     "rounded-[1px] transition-colors",
                     isBarBoundary && "ml-px",
                     noteSteps.has(step)
-                      ? TRACK_BG_COLORS[ch]
+                      ? getTrackSolidClass(ch)
                       : "bg-foreground/5",
                     currentStep != null && step === currentStep && "ring-1 ring-primary bg-primary/40"
                   )}
@@ -137,7 +121,7 @@ function SoundPresetList({
             <span
               className={cn(
                 "size-2 shrink-0 rounded-full",
-                TRACK_BG_COLORS[ch]
+                getTrackSolidClass(ch)
               )}
             />
             <span className="text-muted-foreground">{trackInfo.name}</span>

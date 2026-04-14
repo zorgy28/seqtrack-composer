@@ -3,6 +3,8 @@
 import { useState, useCallback, useRef } from "react";
 import type { CompositionOutput } from "@/lib/ai/schema";
 import { useAsyncOperation, type AsyncStage } from "./use-async-operation";
+import { getSettings, buildProviderConfig } from "@/lib/settings";
+import { useDeviceProfile } from "@/providers/device-provider";
 
 export type ComposeStage = AsyncStage;
 
@@ -37,8 +39,6 @@ export interface ComposeParams {
   scaleName: string;
   bars: number;
   swing: number;
-  modelProvider?: string;
-  modelId?: string;
 }
 
 export interface UseComposeReturn {
@@ -55,8 +55,10 @@ export interface UseComposeReturn {
 
 export function useCompose(): UseComposeReturn {
   const { stage, result, error, run, setResult, reset: resetAsync } = useAsyncOperation<CompositionOutput>();
+  const { profile } = useDeviceProfile();
   const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory());
   const lastParamsRef = useRef<ComposeParams | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const addToHistory = useCallback((params: ComposeParams, data: CompositionOutput) => {
     setHistory(prev => {
@@ -68,11 +70,16 @@ export function useCompose(): UseComposeReturn {
 
   const generate = useCallback(async (params: ComposeParams) => {
     lastParamsRef.current = params;
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+    const signal = abortRef.current.signal;
 
     await run(async () => {
+      const settings = getSettings();
       const res = await fetch("/api/compose", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal,
         body: JSON.stringify({
           prompt: params.prompt,
           bpm: params.bpm,
@@ -80,8 +87,8 @@ export function useCompose(): UseComposeReturn {
           scaleName: params.scaleName,
           bars: params.bars,
           swing: params.swing,
-          modelProvider: params.modelProvider,
-          modelId: params.modelId,
+          providerConfig: buildProviderConfig(settings),
+          deviceId: profile.id,
         }),
       });
 
@@ -94,17 +101,22 @@ export function useCompose(): UseComposeReturn {
       addToHistory(params, data);
       return data;
     });
-  }, [run, addToHistory]);
+  }, [run, addToHistory, profile.id]);
 
   const refine = useCallback(async (instruction: string) => {
     if (!result || !lastParamsRef.current) return;
 
     const params = lastParamsRef.current;
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+    const signal = abortRef.current.signal;
 
     await run(async () => {
+      const settings = getSettings();
       const res = await fetch("/api/compose", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal,
         body: JSON.stringify({
           prompt: params.prompt,
           bpm: params.bpm,
@@ -112,8 +124,8 @@ export function useCompose(): UseComposeReturn {
           scaleName: params.scaleName,
           bars: params.bars,
           swing: params.swing,
-          modelProvider: params.modelProvider,
-          modelId: params.modelId,
+          providerConfig: buildProviderConfig(settings),
+          deviceId: profile.id,
           previousResult: result,
           refinementInstruction: instruction,
         }),
