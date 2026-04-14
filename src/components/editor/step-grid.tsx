@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useMemo, useCallback, memo, useEffect } from "react";
+import { useState, useRef, useMemo, useCallback, memo, useEffect, startTransition } from "react";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import { useProject } from "@/providers/project-provider";
 import { useTrack, useUpdatePattern, useSelectedChannel, useProjectMeta, useSetActivePatternAll, useUpdateTrack, useTrackPatternsExcept } from "@/stores/project-store";
@@ -300,12 +300,23 @@ const PianoRollGrid = memo(function PianoRollGrid({
     [scaleNotes],
   );
 
-  // Precompute harmony hints for all step-pitch combos (O(1) lookup in render loop)
+  // Precompute harmony hints for (step, pitch) combos.
+  // SPARSE MAP: we only populate entries that DIFFER from the default "scale".
+  // Most steps don't have ensemble notes at all, so we skip them entirely —
+  // the render loop falls back to "scale" for missing keys. This makes pattern
+  // switching much faster because typical patterns have very few ensemble
+  // hits (maybe 20-100 notes total) vs. the full 1792 entries we used to build.
   const harmonyHintMap = useMemo(() => {
-    const map = new Map<string, "root" | "chord" | "scale" | null>();
-    for (const pitch of scaleNotes) {
-      for (let step = 0; step < pattern.bars * 16; step++) {
-        map.set(`${step}-${pitch}`, getHarmonyHint(pitch, ensembleAtStep.get(step)));
+    const map = new Map<string, "root" | "chord" | null>();
+    const totalSteps = pattern.bars * 16;
+    for (let step = 0; step < totalSteps; step++) {
+      const ensemble = ensembleAtStep.get(step);
+      if (!ensemble || ensemble.length === 0) continue; // default "scale" — skip
+      for (const pitch of scaleNotes) {
+        const hint = getHarmonyHint(pitch, ensemble);
+        if (hint !== "scale") {
+          map.set(`${step}-${pitch}`, hint);
+        }
       }
     }
     return map;
@@ -383,7 +394,8 @@ const PianoRollGrid = memo(function PianoRollGrid({
                 if (note) {
                   tooltip = `${midiToNoteName(pitch)} v${note.velocity}`;
                 } else {
-                  const hint = harmonyHintMap.get(key) ?? null;
+                  // Missing key = default "scale" (empty ensemble at that step)
+                  const hint = harmonyHintMap.get(key) ?? "scale";
                   const noteName = midiToNoteName(pitch);
                   if (hint === "root") {
                     tooltip = `${noteName} — doubles existing note (unison)`;
@@ -743,7 +755,7 @@ const PatternNavigator = memo(function PatternNavigator() {
         return (
           <button
             key={i}
-            onClick={() => setActivePatternAll(i)}
+            onClick={() => startTransition(() => setActivePatternAll(i))}
             className={cn(
               "px-2 py-0.5 rounded text-xs font-mono transition-colors",
               isActive

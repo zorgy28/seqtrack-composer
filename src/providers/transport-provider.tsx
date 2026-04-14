@@ -1,12 +1,13 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
+import { createContext, useContext, useState, useCallback, useRef, useEffect, startTransition } from "react";
 import type { ReactNode } from "react";
 import type { Project, SeqtrackChannel } from "@/lib/midi/types";
 import type { RecordingStatus } from "@/lib/recording/types";
 import { ALL_CHANNELS, STEPS_PER_BAR } from "@/lib/midi/constants";
 import { useProject } from "@/providers/project-provider";
 import { useMidiConnection } from "@/hooks/use-midi-connection";
+import { useSetActivePatternAll } from "@/stores/project-store";
 
 /**
  * Pre-compute the live state object once per project change.
@@ -40,6 +41,15 @@ function computeLiveState(project: Project): LiveState {
   return { tracks, bpm: project.bpm };
 }
 
+/** Max number of patterns across all tracks (determines song length). */
+function computeMaxPatterns(project: Project): number {
+  let max = 1;
+  for (const track of Object.values(project.tracks)) {
+    if (track && track.patterns.length > max) max = track.patterns.length;
+  }
+  return max;
+}
+
 export interface TransportState {
   isPlaying: boolean;
   currentStep: number | null;
@@ -47,6 +57,8 @@ export interface TransportState {
   recordState: RecordingStatus;
   recordingElapsedMs: number;
   recordingMidiCount: number;
+  /** When true, playback advances through all patterns in sequence. */
+  isSongMode: boolean;
 }
 
 export interface TransportControls {
@@ -57,6 +69,8 @@ export interface TransportControls {
   startRecord: (audioStream?: MediaStream) => Promise<void>;
   stopRecord: () => Promise<string | null>;
   discardRecord: () => void;
+  /** Toggle song mode (sequential pattern playback). */
+  setSongMode: (on: boolean) => void;
 }
 
 type TransportContextValue = TransportState & TransportControls;
@@ -76,9 +90,22 @@ export function TransportProvider({ children }: { children: ReactNode }) {
   const engineRef = useRef<import("@/lib/recording/recording-engine").RecordingEngine | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Song mode: play all patterns P1..Pn in sequence, wrapping at each loop.
+  const [isSongMode, setIsSongMode] = useState(false);
+  const isSongModeRef = useRef(false);
+  isSongModeRef.current = isSongMode;
+  const songIndexRef = useRef(0);
+  const lastStepRef = useRef(-1);
+
   // Live ref to project so the tick callback reads current state
   const projectRef = useRef(project);
   projectRef.current = project;
+
+  // Hook reference to the setActivePatternAll action so we can call it from
+  // inside the tick callback (which runs outside React's render cycle).
+  const setActivePatternAll = useSetActivePatternAll();
+  const setActivePatternAllRef = useRef(setActivePatternAll);
+  setActivePatternAllRef.current = setActivePatternAll;
 
   // Pre-computed live state — updated via useEffect when project changes,
   // read by the playback tick loop with zero allocation.
@@ -129,16 +156,45 @@ export function TransportProvider({ children }: { children: ReactNode }) {
     setTotalSteps(maxSteps);
     setIsPlaying(true);
 
+    // Song mode: start from whatever pattern is currently active
+    songIndexRef.current = p.tracks[ALL_CHANNELS[0]]?.activePattern ?? 0;
+    lastStepRef.current = -1;
+
     const control = playPatternLoopedWithCursor(
       dev.id,
       initialTracks,
       p.bpm,
-      (step) => setCurrentStep(step),
+      (step) => {
+        setCurrentStep(step);
+
+        // Song mode: detect loop wrap (step just went back to 0 from a high value)
+        // and advance to the next pattern in the sequence.
+        if (isSongModeRef.current && step === 0 && lastStepRef.current > 0) {
+          const maxPatterns = computeMaxPatterns(projectRef.current);
+          if (maxPatterns > 1) {
+            const nextIdx = (songIndexRef.current + 1) % maxPatterns;
+            songIndexRef.current = nextIdx;
+            // startTransition so the heavy grid re-render is non-blocking
+            startTransition(() => setActivePatternAllRef.current(nextIdx));
+          }
+        }
+        lastStepRef.current = step;
+      },
       // Zero-allocation ref read — updated via useEffect([project]) above
       () => liveStateRef.current,
     );
     playbackRef.current = control;
   }, [stop]);
+
+  const setSongMode = useCallback((on: boolean) => {
+    setIsSongMode(on);
+    // When enabling mid-playback, sync songIndex to whichever pattern is
+    // currently active so we don't jump unexpectedly.
+    if (on) {
+      const p = projectRef.current;
+      songIndexRef.current = p.tracks[ALL_CHANNELS[0]]?.activePattern ?? 0;
+    }
+  }, []);
 
   const seek = useCallback((step: number) => {
     playbackRef.current?.seek(step);
@@ -243,6 +299,7 @@ export function TransportProvider({ children }: { children: ReactNode }) {
         recordState,
         recordingElapsedMs,
         recordingMidiCount,
+        isSongMode,
         play,
         stop,
         seek,
@@ -250,6 +307,7 @@ export function TransportProvider({ children }: { children: ReactNode }) {
         startRecord,
         stopRecord,
         discardRecord,
+        setSongMode,
       }}
     >
       {children}

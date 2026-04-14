@@ -1,13 +1,13 @@
 "use client";
 
-import { Play, Square, SkipBack, Circle } from "lucide-react";
+import { Play, Square, SkipBack, Circle, ListOrdered } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTransport } from "@/providers/transport-provider";
 import { useMidiConnection } from "@/hooks/use-midi-connection";
 import { Button } from "@/components/ui/button";
 
 export function TransportBar() {
-  const { isPlaying, currentStep, totalSteps, play, stop, seek, recordState, recordingElapsedMs, armRecord, startRecord, stopRecord } = useTransport();
+  const { isPlaying, currentStep, totalSteps, play, stop, seek, recordState, recordingElapsedMs, armRecord, startRecord, stopRecord, isSongMode, setSongMode } = useTransport();
   const { device } = useMidiConnection();
 
   return (
@@ -67,6 +67,20 @@ export function TransportBar() {
           <SkipBack className="size-3" />
         </Button>
       )}
+
+      {/* Song mode toggle */}
+      <Button
+        size="icon-xs"
+        variant={isSongMode ? "default" : "ghost"}
+        className={cn(
+          "h-6 w-6",
+          isSongMode && "bg-primary/80 text-primary-foreground",
+        )}
+        onClick={() => setSongMode(!isSongMode)}
+        title={isSongMode ? "Song mode ON — plays P1→P2→… in sequence. Click to disable." : "Enable song mode — play all patterns in sequence"}
+      >
+        <ListOrdered className="size-3" />
+      </Button>
 
       {/* Step position / Recording timer */}
       {recordState === "recording" ? (

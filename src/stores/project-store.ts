@@ -154,7 +154,10 @@ export function createProjectStore(initialProject?: Project) {
           tracks: updatedTracks,
           updatedAt: new Date().toISOString(),
         };
-        autoSave(updated);
+        // NOTE: no autoSave() here — activePattern is UI navigation state.
+        // Saving on every click would trigger JSON.stringify of the whole
+        // project (on localStorage fallback), which is a measurable stall.
+        // The next real edit will include the new activePattern in its save.
         return { project: updated };
       });
     },
