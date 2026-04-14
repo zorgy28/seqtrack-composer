@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { SoundPicker } from "./sound-picker";
 import { getPresetsForChannel } from "@/lib/midi/sound-library";
 import { useDeviceProfile } from "@/providers/device-provider";
-import { useTransport } from "@/providers/transport-provider";
+import { useCurrentStep } from "@/providers/transport-provider";
 
 // KO II pad labels by MIDI note number
 const KO2_PAD_LABELS: Record<number, string> = {
@@ -668,7 +668,7 @@ const PlaybackCursor = memo(function PlaybackCursor({
 }: {
   totalSteps: number;
 }) {
-  const { currentStep } = useTransport();
+  const currentStep = useCurrentStep();
 
   if (currentStep == null || currentStep < 0) return null;
 

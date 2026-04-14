@@ -2,12 +2,12 @@
 
 import { Play, Square, SkipBack, Circle, ListOrdered } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useTransport } from "@/providers/transport-provider";
+import { useTransport, useCurrentStep } from "@/providers/transport-provider";
 import { useMidiConnection } from "@/hooks/use-midi-connection";
 import { Button } from "@/components/ui/button";
 
 export function TransportBar() {
-  const { isPlaying, currentStep, totalSteps, play, stop, seek, recordState, recordingElapsedMs, armRecord, startRecord, stopRecord, isSongMode, setSongMode } = useTransport();
+  const { isPlaying, totalSteps, play, stop, seek, recordState, recordingElapsedMs, armRecord, startRecord, stopRecord, isSongMode, setSongMode } = useTransport();
   const { device } = useMidiConnection();
 
   return (
@@ -90,29 +90,42 @@ export function TransportBar() {
             {formatRecordingTime(recordingElapsedMs)}
           </span>
         </>
-      ) : isPlaying && currentStep !== null ? (
-        <>
-          <span className="text-[10px] font-mono text-muted-foreground w-10">
-            {Math.floor(currentStep / 16) + 1}:{(currentStep % 16) + 1}
-          </span>
-          <input
-            type="range"
-            min={0}
-            max={totalSteps - 1}
-            value={currentStep}
-            onChange={(e) => seek(Number(e.target.value))}
-            className="flex-1 h-1 accent-primary cursor-pointer max-w-64"
-          />
-          <span className="text-[10px] font-mono text-muted-foreground/50">
-            {totalSteps}
-          </span>
-        </>
+      ) : isPlaying ? (
+        <PlaybackPositionDisplay totalSteps={totalSteps} seek={seek} />
       ) : (
         <span className="text-[10px] text-muted-foreground">
           Stopped
         </span>
       )}
     </div>
+  );
+}
+
+/**
+ * Self-subscribed playback position display. Isolates the 30-60fps
+ * currentStep updates from the rest of TransportBar so only this small
+ * component re-renders on each tick.
+ */
+function PlaybackPositionDisplay({ totalSteps, seek }: { totalSteps: number; seek: (step: number) => void }) {
+  const currentStep = useCurrentStep();
+  if (currentStep === null) return null;
+  return (
+    <>
+      <span className="text-[10px] font-mono text-muted-foreground w-10">
+        {Math.floor(currentStep / 16) + 1}:{(currentStep % 16) + 1}
+      </span>
+      <input
+        type="range"
+        min={0}
+        max={totalSteps - 1}
+        value={currentStep}
+        onChange={(e) => seek(Number(e.target.value))}
+        className="flex-1 h-1 accent-primary cursor-pointer max-w-64"
+      />
+      <span className="text-[10px] font-mono text-muted-foreground/50">
+        {totalSteps}
+      </span>
+    </>
   );
 }
 

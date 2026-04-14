@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, useRef, useEffect, startTransition } from "react";
+import { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo, startTransition } from "react";
 import type { ReactNode } from "react";
 import type { Project, SeqtrackChannel } from "@/lib/midi/types";
 import type { RecordingStatus } from "@/lib/recording/types";
@@ -52,7 +52,6 @@ function computeMaxPatterns(project: Project): number {
 
 export interface TransportState {
   isPlaying: boolean;
-  currentStep: number | null;
   totalSteps: number;
   recordState: RecordingStatus;
   recordingElapsedMs: number;
@@ -76,6 +75,14 @@ export interface TransportControls {
 type TransportContextValue = TransportState & TransportControls;
 
 const TransportContext = createContext<TransportContextValue | null>(null);
+
+/**
+ * Separate context for currentStep ONLY, so that playback ticks (which fire
+ * every 8–16ms at 120–240 BPM) only re-render components that actually need
+ * the step position (the PlaybackCursor leaf), not the entire TransportBar,
+ * AppHeader, useRecording consumers, etc.
+ */
+const CurrentStepContext = createContext<number | null>(null);
 
 export function TransportProvider({ children }: { children: ReactNode }) {
   const { project } = useProject();
@@ -290,27 +297,31 @@ export function TransportProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // Memoized so the value reference only changes when a stable field
+  // actually changes — crucial during playback, when currentStep fires
+  // every tick but the stable fields don't move.
+  const transportValue = useMemo<TransportContextValue>(() => ({
+    isPlaying,
+    totalSteps,
+    recordState,
+    recordingElapsedMs,
+    recordingMidiCount,
+    isSongMode,
+    play,
+    stop,
+    seek,
+    armRecord,
+    startRecord,
+    stopRecord,
+    discardRecord,
+    setSongMode,
+  }), [isPlaying, totalSteps, recordState, recordingElapsedMs, recordingMidiCount, isSongMode, play, stop, seek, armRecord, startRecord, stopRecord, discardRecord, setSongMode]);
+
   return (
-    <TransportContext.Provider
-      value={{
-        isPlaying,
-        currentStep,
-        totalSteps,
-        recordState,
-        recordingElapsedMs,
-        recordingMidiCount,
-        isSongMode,
-        play,
-        stop,
-        seek,
-        armRecord,
-        startRecord,
-        stopRecord,
-        discardRecord,
-        setSongMode,
-      }}
-    >
-      {children}
+    <TransportContext.Provider value={transportValue}>
+      <CurrentStepContext.Provider value={currentStep}>
+        {children}
+      </CurrentStepContext.Provider>
     </TransportContext.Provider>
   );
 }
@@ -319,4 +330,14 @@ export function useTransport(): TransportContextValue {
   const ctx = useContext(TransportContext);
   if (!ctx) throw new Error("useTransport must be used within TransportProvider");
   return ctx;
+}
+
+/**
+ * Subscribe ONLY to the current playback step. Updates every playback tick
+ * (~8–16ms at 120–240 BPM). Use this in leaf components that display the
+ * playhead; do not destructure currentStep from useTransport() anywhere
+ * performance-sensitive.
+ */
+export function useCurrentStep(): number | null {
+  return useContext(CurrentStepContext);
 }
