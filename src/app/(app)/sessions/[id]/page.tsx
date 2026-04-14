@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Clock, Music } from "lucide-react";
+import { ArrowLeft, Clock, Music, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useProject } from "@/providers/project-provider";
@@ -41,6 +41,17 @@ function formatDate(dateStr: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/** Map a MediaRecorder MIME type to a sensible filename extension. */
+function mimeTypeToExt(mimeType: string): string {
+  if (!mimeType) return "webm";
+  if (mimeType.includes("webm")) return "webm";
+  if (mimeType.includes("ogg")) return "ogg";
+  if (mimeType.includes("wav")) return "wav";
+  if (mimeType.includes("mp4") || mimeType.includes("m4a")) return "m4a";
+  if (mimeType.includes("mpeg")) return "mp3";
+  return "webm";
 }
 
 // ── Component ────────────────────────────────────────────────────
@@ -140,6 +151,26 @@ export default function SessionDetailPage() {
     router.push("/sessions");
   }, [router]);
 
+  // Download the recorded audio blob to disk. The blob is the raw output
+  // of MediaRecorder — typically WebM/Opus on Chrome/Electron. The file
+  // extension is derived from the blob's MIME type so the user gets a
+  // valid filename (.webm / .ogg / .wav).
+  const handleDownloadAudio = useCallback(() => {
+    if (!audioBlob || !session) return;
+    const ext = mimeTypeToExt(audioBlob.type);
+    const safeName = (session.name || "recording").replace(/[^\w.-]+/g, "_");
+    const filename = `${safeName}.${ext}`;
+    const url = URL.createObjectURL(audioBlob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    // Free the object URL after the download has had time to start
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, [audioBlob, session]);
+
   // ── Loading state ────────────────────────────────────────────
 
   if (loading) {
@@ -200,6 +231,22 @@ export default function SessionDetailPage() {
         <span className="text-[10px] text-muted-foreground font-mono shrink-0 ml-auto">
           {formatDate(session.createdAt)}
         </span>
+
+        {/* Download audio button — disabled when no audio was captured */}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleDownloadAudio}
+          disabled={!audioBlob}
+          title={
+            audioBlob
+              ? `Download recorded audio (${(audioBlob.size / 1024 / 1024).toFixed(1)} MB, ${audioBlob.type || "webm"})`
+              : "No audio captured for this session — enable Audio Monitor before recording to capture audio"
+          }
+        >
+          <Download className="size-3 mr-1" />
+          Audio
+        </Button>
       </div>
 
       {/* Timeline Editor */}
